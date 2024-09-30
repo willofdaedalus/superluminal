@@ -1,0 +1,4 @@
+github.com/sethvargo/go-diceware v0.4.0 h1:T9o5HaG+8Ae6We4LhItjzOSdTkW7hsikNexa5o837IQ=
+github.com/sethvargo/go-diceware v0.4.0/go.mod h1:Lg1SyPS7yQO6BBgTN5r4f2MUDkqGfLWsOjHPY0kA8iw=
+golang.org/x/crypto v0.27.0 h1:GXm2NjJrPaiv/h1tb2UH8QfgC/hOf/+z0p6PT8o1w7A=
+golang.org/x/crypto v0.27.0/go.mod h1:1Xngt8kV6Dvbssa53Ziq6Eqn0HqbZi5Z6R0ZpwQzt70=

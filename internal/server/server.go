@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"syscall"
 	"time"
 	c "willofdaedalus/superluminal/internal/client"
 )
@@ -19,6 +21,8 @@ type Server struct {
 	hashTimeOut   time.Time
 	serverStarted time.Time
 	listener      net.Listener
+	sig           chan os.Signal
+	signals       []os.Signal
 }
 
 func CreateServer() (*Server, error) {
@@ -28,6 +32,8 @@ func CreateServer() (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("couldn't start server for superluminal")
 	}
+
+	sigs := []os.Signal{syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV, syscall.SIGINT, syscall.SIGHUP}
 
 	_, port, err := net.SplitHostPort(listener.Addr().String())
 	if err != nil {
@@ -47,21 +53,33 @@ func CreateServer() (*Server, error) {
 		serverStarted: time.Now(),                      // timestampo for start of server
 		hashTimeOut:   time.Now().Add(time.Minute * 5), // hash times out after 5mins
 		listener:      listener,
+		signals:       sigs,
 	}, nil
 }
 
 func (s *Server) StartServer() {
-	fmt.Printf("here's the connection string %q\n", fmt.Sprintf("%s:%s", s.addr, s.port))
+	s.handleSignals()
+	fmt.Printf("server started at %q\n", fmt.Sprintf("%s:%s", s.addr, s.port))
 
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
+			if opErr, ok := err.(*net.OpError); ok && !opErr.Temporary() {
+				fmt.Println("server shutting down")
+				return
+			}
+
 			log.Println(err)
 			continue
 		}
 
 		go handleNewClient(conn)
 	}
+}
+
+func (s *Server) ShutdownServer() {
+	s.listener.Close()
+	fmt.Printf("shutdown server at %q\n", fmt.Sprintf("%s:%s", s.addr, s.port))
 }
 
 func (s *Server) AcceptNewClient(client *c.Client) {

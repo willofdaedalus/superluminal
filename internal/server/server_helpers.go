@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 func getIpAddr() (string, error) {
@@ -57,4 +60,23 @@ func handleNewClient(conn net.Conn) {
 	}
 
 	fmt.Printf("got %s from the client\n", clientData)
+}
+
+func (s *Server) handleSignals() {
+	s.sig = make(chan os.Signal, 1)
+	signal.Notify(s.sig, s.signals...)
+
+	go func() {
+		for {
+			switch <-s.sig {
+			case syscall.SIGQUIT,
+				syscall.SIGABRT,
+				syscall.SIGTERM,
+				syscall.SIGINT,
+				syscall.SIGHUP:
+				s.ShutdownServer()
+				os.Exit(0)
+			}
+		}
+	}()
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"net"
 )
 
@@ -43,4 +44,17 @@ func getIpAddr() (string, error) {
 	}
 
 	return "", fmt.Errorf("no valid IP address found")
+}
+
+func handleNewClient(conn net.Conn) {
+	defer conn.Close()
+
+	clientData := make([]byte, 1024)
+	_, err := conn.Read(clientData)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	fmt.Printf("got %s from the client\n", clientData)
 }

@@ -52,14 +52,13 @@ func getIpAddr() (string, error) {
 func handleNewClient(conn net.Conn) {
 	defer conn.Close()
 
-	clientData := make([]byte, 1024)
-	_, err := conn.Read(clientData)
+	fmt.Printf("someone connected on %s\n", conn.RemoteAddr().String())
+
+	_, err := conn.Write([]byte("hello and welcome to the session"))
 	if err != nil {
 		log.Println(err)
 		return
 	}
-
-	fmt.Printf("got %s from the client\n", clientData)
 }
 
 func (s *Server) handleSignals() {

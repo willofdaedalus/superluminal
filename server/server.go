@@ -8,7 +8,7 @@ import (
 	"os"
 	"syscall"
 	"time"
-	c "willofdaedalus/superluminal/internal/client"
+	c "willofdaedalus/superluminal/client"
 )
 
 type Server struct {
@@ -26,14 +26,14 @@ type Server struct {
 }
 
 func CreateServer() (*Server, error) {
-	masterClient := c.CreateClient("manny", true)
+	masterClient := c.CreateClient("manny", true, nil)
 
-	listener, err := net.Listen("tcp", "localhost:0")
+	listener, err := net.Listen("tcp", "localhost:42024")
 	if err != nil {
 		return nil, fmt.Errorf("couldn't start server for superluminal")
 	}
 
-	sigs := []os.Signal{syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV, syscall.SIGINT, syscall.SIGHUP}
+	sigs := []os.Signal{syscall.SIGTERM, syscall.SIGABRT, syscall.SIGINT}
 
 	_, port, err := net.SplitHostPort(listener.Addr().String())
 	if err != nil {
@@ -78,8 +78,8 @@ func (s *Server) StartServer() {
 }
 
 func (s *Server) ShutdownServer() {
+	fmt.Println("server shutting down...")
 	s.listener.Close()
-	fmt.Printf("shutdown server at %q\n", fmt.Sprintf("%s:%s", s.addr, s.port))
 }
 
 func (s *Server) AcceptNewClient(client *c.Client) {

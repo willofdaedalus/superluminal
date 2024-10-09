@@ -1,49 +1,114 @@
 package client
 
 import (
+	"bytes"
+	"context"
+	"encoding/gob"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"time"
+
+	"willofdaedalus/superluminal/config"
 )
 
-type Client struct {
+type TransportClient struct {
 	Name       string    // name user sends to application
 	Alive      bool      // client still connected
 	Master     bool      // owner of the current
 	TimeJoined time.Time // timestamp of when client connected
 	PassUsed   string
-	Conn       net.Conn
+}
+
+type Client struct {
+	TransportClient
+	Conn net.Conn
 }
 
 func CreateClient(name string, owner bool, conn net.Conn) *Client {
-	return &Client{
-		Name:       name,
-		TimeJoined: time.Now(),
-		Alive:      true,
-		Master:     owner,
-		Conn:       conn,
-	}
+	c := &Client{}
+	c.Name = name
+	c.TimeJoined = time.Now()
+	c.Alive = true
+	c.Master = owner
+	c.Conn = conn
+
+	return c
 }
 
 // Example of how to listen for messages from the server
-func (c *Client) ListenForMessages() {
+func (c *Client) ListenForMessages(ctx context.Context) {
 	buf := make([]byte, 1024)
-	msg := make(chan struct{})
 
 	for {
-		n, err := c.Conn.Read(buf)
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("connection closed for client %s: %v", c.Name, err)
-				c.Alive = false
-				msg<-struct{}{}
+		select {
+		case <-ctx.Done():
+			log.Println("context canceled, stopping read")
+			return
+		default:
+			n, err := c.Conn.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Printf("connection closed for client %q: %v", c.Name, err)
+					c.Alive = false
+					return
+				}
+			}
+
+			message := string(buf[:n])
+			if message == "server rejected your passphrase. check and re-enter\n" {
+				fmt.Println(message)
 				return
 			}
 		}
-
-		message := string(buf[:n])
-		log.Printf("received message: %s", message)
-		<-msg
 	}
+}
+
+func ConnectToServer(ctx context.Context) error {
+	var d net.Dialer
+	var toSend bytes.Buffer
+
+	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(time.Second*5))
+	defer cancel()
+
+	conn, err := d.DialContext(ctx, "tcp", config.DefaultConnection)
+	if err != nil {
+		return fmt.Errorf("couldn't find the server")
+	}
+
+	go func() {
+		<-ctx.Done()
+		if err := conn.Close(); err != nil {
+			log.Printf("failed to close the connection: %v", err)
+		}
+	}()
+
+	client := CreateClient("default name", false, conn)
+	tc := client.TransportClient
+	tc.PassUsed = "wrong pass"
+	enc := gob.NewEncoder(&toSend)
+	err = enc.Encode(tc)
+	if err != nil {
+		return fmt.Errorf("struct encoding err: %v", err)
+	}
+
+	errChan := make(chan error)
+	go func() {
+		_, err = conn.Write(toSend.Bytes())
+		errChan <- err
+	}()
+
+	select {
+	case err = <-errChan:
+		if err != nil {
+			return fmt.Errorf("couldn't send the struct across the network: %v", err)
+		}
+	case <-ctx.Done():
+		conn.Close()
+		return fmt.Errorf("couldn't find or connect to server: %v", err)
+	}
+
+	client.ListenForMessages(ctx)
+	return nil
 }

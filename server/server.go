@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/gob"
 	"fmt"
 	"log"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"syscall"
 	"time"
 	c "willofdaedalus/superluminal/client"
+	"willofdaedalus/superluminal/utils"
 )
 
 type Server struct {
@@ -45,6 +47,16 @@ func CreateServer() (*Server, error) {
 		return nil, err
 	}
 
+	pass, err := utils.GeneratePassphrase()
+	if err != nil {
+		return nil, err
+	}
+
+	hash, err := utils.HashPassphrase(pass)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Server{
 		addr:          addr,
 		port:          port,
@@ -54,10 +66,15 @@ func CreateServer() (*Server, error) {
 		hashTimeOut:   time.Now().Add(time.Minute * 5), // hash times out after 5mins
 		listener:      listener,
 		signals:       sigs,
+		currentHash:   hash,
 	}, nil
 }
 
 func (s *Server) StartServer() {
+	var fromClient bytes.Buffer
+	var newClient c.Client
+
+	enc := gob.NewDecoder(&fromClient)
 	s.handleSignals()
 	fmt.Printf("server started at %q\n", fmt.Sprintf("%s:%s", s.addr, s.port))
 
@@ -73,7 +90,26 @@ func (s *Server) StartServer() {
 			continue
 		}
 
-		go handleNewClient(conn)
+		buf := make([]byte, 1024)
+		_, err = conn.Read(buf)
+		if err != nil {
+			log.Println("error reading from connection:", err)
+		}
+		fromClient.Write(buf)
+
+		err = enc.Decode(&newClient)
+		if err != nil {
+			log.Println("error decoding:", err)
+		}
+
+		if s.currentHash == newClient.PassUsed {
+			go handleNewClient(conn)
+		} else {
+			conn.Write([]byte("server rejected your passphrase. check and re-enter\n"))
+			fmt.Println("rejected client for wrong passphrase")
+			conn.Close()
+		}
+
 	}
 }
 

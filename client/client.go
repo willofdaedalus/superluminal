@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
-	"io"
+	// "io"
 	"log"
 	"net"
 	"time"
@@ -49,11 +49,16 @@ func (c *Client) ListenForMessages(ctx context.Context) {
 		default:
 			n, err := c.Conn.Read(buf)
 			if err != nil {
-				if err != io.EOF {
-					log.Printf("connection closed for client %q: %v", c.Name, err)
-					c.Alive = false
+				if opErr, ok := err.(*net.OpError); ok && opErr.Err != nil {
+					log.Println("server shutting down. goodbye...")
+					c.Conn.Close()
 					return
 				}
+				// if err != io.EOF {
+				// 	log.Printf("connection closed for client %q: %v", c.Name, err)
+				// 	c.Alive = false
+				// 	return
+				// }
 			}
 
 			message := string(buf[:n])
@@ -61,11 +66,12 @@ func (c *Client) ListenForMessages(ctx context.Context) {
 				fmt.Println(message)
 				return
 			}
+			fmt.Println(message)
 		}
 	}
 }
 
-func ConnectToServer(ctx context.Context) error {
+func ConnectToServer(ctx context.Context, pass string) error {
 	var d net.Dialer
 	var toSend bytes.Buffer
 
@@ -84,9 +90,10 @@ func ConnectToServer(ctx context.Context) error {
 		}
 	}()
 
+	// create a new client and then transport only the necessary parts to the client
 	client := CreateClient("default name", false, conn)
 	tc := client.TransportClient
-	tc.PassUsed = "wrong pass"
+	tc.PassUsed = pass
 	enc := gob.NewEncoder(&toSend)
 	err = enc.Encode(tc)
 	if err != nil {

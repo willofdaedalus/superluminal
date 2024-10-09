@@ -52,10 +52,13 @@ func CreateServer() (*Server, error) {
 		return nil, err
 	}
 
+	fmt.Println("your pass is:", pass)
+
 	hash, err := utils.HashPassphrase(pass)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("your hash is:", hash)
 
 	return &Server{
 		addr:          addr,
@@ -72,7 +75,7 @@ func CreateServer() (*Server, error) {
 
 func (s *Server) StartServer() {
 	var fromClient bytes.Buffer
-	var newClient c.Client
+	var incomingClient c.Client
 
 	enc := gob.NewDecoder(&fromClient)
 	s.handleSignals()
@@ -81,34 +84,39 @@ func (s *Server) StartServer() {
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
-			if opErr, ok := err.(*net.OpError); ok && !opErr.Temporary() {
-				fmt.Println("server shutting down")
-				return
+			// if opErr, ok := err.(*net.OpError); ok && !opErr.Temporary() {
+			// 	fmt.Println("server shutting down")
+			// 	return
+			// }
+			//
+			// log.Println(err)
+
+			buf := make([]byte, 1024)
+			_, err = conn.Read(buf)
+			if err != nil {
+				log.Println("error reading from connection:", err)
+			}
+			fromClient.Write(buf)
+
+			err = enc.Decode(&incomingClient)
+			if err != nil {
+				log.Println("error decoding:", err)
 			}
 
-			log.Println(err)
-			continue
+			if !utils.CheckPassphrase(s.currentHash, incomingClient.PassUsed) {
+				conn.Write([]byte("server rejected your passphrase. check and re-enter\n"))
+				log.Printf("rejected %q for wrong passphrase", incomingClient.Name)
+				// in the future allow up to 3 tries before closing the client's
+				// connection to allow that flexibility and great UX
+				conn.Close()
+				continue
+			}
+			newClient := incomingClient
+			newClient.Conn = conn
+			s.Clients = append(s.Clients, newClient)
 		}
 
-		buf := make([]byte, 1024)
-		_, err = conn.Read(buf)
-		if err != nil {
-			log.Println("error reading from connection:", err)
-		}
-		fromClient.Write(buf)
-
-		err = enc.Decode(&newClient)
-		if err != nil {
-			log.Println("error decoding:", err)
-		}
-
-		if s.currentHash == newClient.PassUsed {
-			go handleNewClient(conn)
-		} else {
-			conn.Write([]byte("server rejected your passphrase. check and re-enter\n"))
-			fmt.Println("rejected client for wrong passphrase")
-			conn.Close()
-		}
+		go handleNewClient(conn)
 
 	}
 }

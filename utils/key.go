@@ -7,27 +7,29 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// checks the client entered passphrase with the hashed passphrase
+// NormalizePassphrase ensures consistent handling of passphrases
+func NormalizePassphrase(passphrase string) string {
+	return strings.TrimSpace(passphrase)
+}
+
 func CheckPassphrase(hash, passphrase string) bool {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(passphrase)) == nil
+	normalizedPassphrase := NormalizePassphrase(passphrase)
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(normalizedPassphrase)) == nil
 }
 
-// generates a new diceware passphrase
 func GeneratePassphrase() (string, error) {
-	list, err := diceware.Generate(6)
+	list, err := diceware.Generate(1)
 	if err != nil {
 		return "", err
 	}
-
-	return strings.Join(list, " "), nil
+	return NormalizePassphrase(strings.Join(list, " ")), nil
 }
 
-// returns a hashed passphrase
 func HashPassphrase(passphrase string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(passphrase), bcrypt.DefaultCost)
+	normalizedPassphrase := NormalizePassphrase(passphrase)
+	hash, err := bcrypt.GenerateFromPassword([]byte(normalizedPassphrase), bcrypt.DefaultCost)
 	if err != nil {
 		return "", err
 	}
-
 	return string(hash), nil
 }

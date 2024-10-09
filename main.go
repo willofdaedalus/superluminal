@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"log"
+	"os"
+
 	"willofdaedalus/superluminal/client"
 	"willofdaedalus/superluminal/config"
 	"willofdaedalus/superluminal/server"
@@ -27,10 +30,16 @@ func main() {
 		}
 		s.StartServer()
 	} else if config.DefaultConnection != "" {
-		// connect to the server if the -c flag is provided
-		ctx := context.Background()
+		reader := bufio.NewReader(os.Stdin)
 
-		err := client.ConnectToServer(ctx)
+		fmt.Print("Enter your passphrase: ")
+		pass, err := reader.ReadString('\n') // Read until newline
+		if err != nil {
+			log.Fatalf("Error reading input: %v", err)
+		}
+
+		ctx := context.Background()
+		err = client.ConnectToServer(ctx, pass)
 		if err != nil {
 			log.Fatal(err)
 		}

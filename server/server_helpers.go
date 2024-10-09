@@ -50,8 +50,6 @@ func getIpAddr() (string, error) {
 }
 
 func handleNewClient(conn net.Conn) {
-	defer conn.Close()
-
 	fmt.Printf("someone connected on %s\n", conn.RemoteAddr().String())
 
 	_, err := conn.Write([]byte("hello and welcome to the session"))

@@ -3,7 +3,9 @@ package client
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"strconv"
+	"strings"
 	"time"
 	"willofdaedalus/superluminal/config"
 )
@@ -57,4 +59,22 @@ func validateHeader(header []byte) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// Function to handle read errors
+func handleReadError(err error) error {
+	opErr, ok := err.(*net.OpError)
+	if !ok {
+		return err
+	}
+
+	if strings.Contains(opErr.Error(), config.ServerClosed) {
+		return fmt.Errorf("server not accepting connections; didn't receive authentication key")
+	} else if strings.Contains(opErr.Error(), config.ConnectionReset) {
+		return fmt.Errorf("server reset connection because it shut down; didn't receive authentication key")
+	} else if strings.Contains(opErr.Error(), config.ServerIO) {
+		return fmt.Errorf("deadline for reading authentication key exceeded due to i/o timeout")
+	}
+
+	return err
 }

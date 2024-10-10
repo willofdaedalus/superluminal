@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -64,7 +66,6 @@ func CreateServer(name string, maxConns int) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("your hash is:", hash)
 
 	return &Server{
 		addr:          addr,
@@ -92,13 +93,10 @@ func (s *Server) StartServer() {
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
-			// if opErr, ok := err.(*net.OpError); ok && !opErr.Temporary() {
-			// 	fmt.Println("server shutting down")
-			// 	return
-			// }
-			//
+			if opErr, ok := err.(*net.OpError); ok && !opErr.Temporary() {
+				return
+			}
 			log.Println("error is:", err)
-
 		}
 
 		// send the header as bytes to the client on connect to confirm it's the
@@ -112,7 +110,12 @@ func (s *Server) StartServer() {
 		buf := make([]byte, 1024)
 		_, err = conn.Read(buf)
 		if err != nil {
-			log.Println("error reading from connection:", err)
+			if errors.Is(err, io.EOF) {
+				log.Println("client disconnected")
+				continue
+			}
+			log.Println(err)
+			continue
 		}
 		fromClient.Write(buf)
 

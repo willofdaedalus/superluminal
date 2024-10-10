@@ -8,6 +8,7 @@ const (
 	ConnectionReset = "connection reset by peer"
 	NoSuchHost = "no such host"
 	RejectedPass = "server rejected your passphrase"
+	ServerIO = "i/o timeout"
 )
 
 var (

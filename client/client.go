@@ -8,8 +8,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	// "io"
@@ -65,10 +67,11 @@ func (c *Client) ListenForMessages(ctx context.Context) {
 			// 	c.Conn.Close()
 			// 	return
 			// }
-			if opErr.Err != nil {
-				log.Println("server shutting down. goodbye...")
-				c.Conn.Close()
-				return
+			// deadline for reading from the server time out
+			if errors.Is(opErr.Err, os.ErrDeadlineExceeded) {
+				log.Println("read timed out. reseting...")
+				c.Conn.SetDeadline(time.Now().Add(config.MaxConnectionTime))
+				continue
 			}
 			// if err != io.EOF {
 			// 	log.Printf("connection closed for client %q: %v", c.Name, err)
@@ -95,46 +98,19 @@ func ConnectToServer(ctx context.Context, pass string) error {
 
 	conn, err := d.DialContext(ctx, "tcp", config.DefaultConnection)
 	if err != nil {
-		opErr, ok := err.(*net.OpError)
-		if !ok {
-			return err
-		}
-
-		if strings.Contains(opErr.Error(), config.NoSuchHost) {
-			return fmt.Errorf("couldn't find host provided")
-		}
+		return fmt.Errorf("couldn't find server: %w", err)
 	}
-	cancel()
 	defer conn.Close()
 
-	// check that the timeout deadline is not exceeded and handle it if
-	// that's the case
-	select {
-	case <-ctx.Done():
-		err := ctx.Err()
-		if err == context.DeadlineExceeded {
-			return fmt.Errorf("couldn't connect to server because of timeout")
-		}
-
-	}
-
+	// set a deadline for the read operation
+	conn.SetDeadline(time.Now().Add(config.MaxConnectionTime))
 	header := make([]byte, 21)
 	_, err = conn.Read(header)
 	if err != nil {
-		opErr, ok := err.(*net.OpError)
-		if !ok {
-			return err
-		}
-
-		if strings.Contains(opErr.Error(), config.ServerClosed) {
-			return fmt.Errorf("server not accepting connections; didn't receive authentication key")
-		} else if strings.Contains(opErr.Error(), config.ConnectionReset) {
-			return fmt.Errorf("server reset connection because it shutdown; didn't receive authentication key")
-		}
+		return handleReadError(err)
 	}
 
 	if ok, err := validateHeader(header); !ok {
-		conn.Close()
 		return err
 	}
 

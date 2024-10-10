@@ -1,10 +1,17 @@
 package client
 
+// send user's password to the server for authentication
+// once the user is authenticated, encode and send the whole user client
+// object to the server to decode and store
+
 import (
 	"bytes"
 	"context"
 	"encoding/gob"
 	"fmt"
+	"io"
+	"strings"
+
 	// "io"
 	"log"
 	"net"
@@ -37,37 +44,45 @@ func CreateClient(name string, owner bool, conn net.Conn) *Client {
 	return c
 }
 
-// Example of how to listen for messages from the server
 func (c *Client) ListenForMessages(ctx context.Context) {
 	buf := make([]byte, 1024)
 
 	for {
-		select {
-		case <-ctx.Done():
-			log.Println("context canceled, stopping read")
-			return
-		default:
-			n, err := c.Conn.Read(buf)
-			if err != nil {
-				if opErr, ok := err.(*net.OpError); ok && opErr.Err != nil {
-					log.Println("server shutting down. goodbye...")
-					c.Conn.Close()
-					return
-				}
-				// if err != io.EOF {
-				// 	log.Printf("connection closed for client %q: %v", c.Name, err)
-				// 	c.Alive = false
-				// 	return
-				// }
-			}
-
-			message := string(buf[:n])
-			if message == "server rejected your passphrase. check and re-enter\n" {
-				fmt.Println(message)
+		// case <-ctx.Done():
+		// 	log.Println("context canceled, stopping read")
+		// 	return
+		n, err := c.Conn.Read(buf)
+		if err != nil {
+			opErr, _ := err.(*net.OpError)
+			if err == io.EOF {
+				// this could be a kick
+				log.Println("server closed unexpectedly")
+				c.Conn.Close()
 				return
 			}
-			fmt.Println(message)
+			// if !ok {
+			// 	fmt.Println("not network error:", err)
+			// 	c.Conn.Close()
+			// 	return
+			// }
+			if opErr.Err != nil {
+				log.Println("server shutting down. goodbye...")
+				c.Conn.Close()
+				return
+			}
+			// if err != io.EOF {
+			// 	log.Printf("connection closed for client %q: %v", c.Name, err)
+			// 	c.Alive = false
+			// 	return
+			// }
 		}
+
+		message := string(buf[:n])
+		if strings.Contains(message, config.RejectedPass) {
+			fmt.Println(message)
+			return
+		}
+		fmt.Println(message)
 	}
 }
 
@@ -75,23 +90,56 @@ func ConnectToServer(ctx context.Context, pass string) error {
 	var d net.Dialer
 	var toSend bytes.Buffer
 
-	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(time.Second*5))
+	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(config.MaxConnectionTime))
 	defer cancel()
 
 	conn, err := d.DialContext(ctx, "tcp", config.DefaultConnection)
 	if err != nil {
-		return fmt.Errorf("couldn't find the server")
+		opErr, ok := err.(*net.OpError)
+		if !ok {
+			return err
+		}
+
+		if strings.Contains(opErr.Error(), config.NoSuchHost) {
+			return fmt.Errorf("couldn't find host provided")
+		}
+	}
+	cancel()
+	defer conn.Close()
+
+	// check that the timeout deadline is not exceeded and handle it if
+	// that's the case
+	select {
+	case <-ctx.Done():
+		err := ctx.Err()
+		if err == context.DeadlineExceeded {
+			return fmt.Errorf("couldn't connect to server because of timeout")
+		}
+
 	}
 
-	go func() {
-		<-ctx.Done()
-		if err := conn.Close(); err != nil {
-			log.Printf("failed to close the connection: %v", err)
+	header := make([]byte, 21)
+	_, err = conn.Read(header)
+	if err != nil {
+		opErr, ok := err.(*net.OpError)
+		if !ok {
+			return err
 		}
-	}()
+
+		if strings.Contains(opErr.Error(), config.ServerClosed) {
+			return fmt.Errorf("server not accepting connections; didn't receive authentication key")
+		} else if strings.Contains(opErr.Error(), config.ConnectionReset) {
+			return fmt.Errorf("server reset connection because it shutdown; didn't receive authentication key")
+		}
+	}
+
+	if ok, err := validateHeader(header); !ok {
+		conn.Close()
+		return err
+	}
 
 	// create a new client and then transport only the necessary parts to the client
-	client := CreateClient("default name", false, conn)
+	client := CreateClient("john doe", false, conn)
 	tc := client.TransportClient
 	tc.PassUsed = pass
 	enc := gob.NewEncoder(&toSend)
@@ -111,9 +159,9 @@ func ConnectToServer(ctx context.Context, pass string) error {
 		if err != nil {
 			return fmt.Errorf("couldn't send the struct across the network: %v", err)
 		}
-	case <-ctx.Done():
-		conn.Close()
-		return fmt.Errorf("couldn't find or connect to server: %v", err)
+		// case <-ctx.Done():
+		// 	conn.Close()
+		// 	return fmt.Errorf("couldn't find or connect to server: %v", err)
 	}
 
 	client.ListenForMessages(ctx)

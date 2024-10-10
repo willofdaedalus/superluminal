@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/gob"
 	"fmt"
 	"log"
@@ -13,10 +14,15 @@ import (
 	"willofdaedalus/superluminal/utils"
 )
 
+const (
+	header = "v1.sprlmnl"
+)
+
 type Server struct {
 	Clients       []c.Client
 	Owner         c.Client
 	Buffer        bytes.Buffer
+	maxConns      int
 	port          string
 	addr          string
 	currentHash   string
@@ -27,8 +33,8 @@ type Server struct {
 	signals       []os.Signal
 }
 
-func CreateServer() (*Server, error) {
-	masterClient := c.CreateClient("manny", true, nil)
+func CreateServer(name string, maxConns int) (*Server, error) {
+	masterClient := c.CreateClient(name, true, nil)
 
 	listener, err := net.Listen("tcp", "localhost:42024")
 	if err != nil {
@@ -70,6 +76,7 @@ func CreateServer() (*Server, error) {
 		listener:      listener,
 		signals:       sigs,
 		currentHash:   hash,
+		maxConns:      maxConns,
 	}, nil
 }
 
@@ -77,6 +84,7 @@ func (s *Server) StartServer() {
 	var fromClient bytes.Buffer
 	var incomingClient c.Client
 
+	ctx := context.Background()
 	enc := gob.NewDecoder(&fromClient)
 	s.handleSignals()
 	fmt.Printf("server started at %q\n", fmt.Sprintf("%s:%s", s.addr, s.port))
@@ -89,35 +97,43 @@ func (s *Server) StartServer() {
 			// 	return
 			// }
 			//
-			// log.Println(err)
+			log.Println("error is:", err)
 
-			buf := make([]byte, 1024)
-			_, err = conn.Read(buf)
-			if err != nil {
-				log.Println("error reading from connection:", err)
-			}
-			fromClient.Write(buf)
-
-			err = enc.Decode(&incomingClient)
-			if err != nil {
-				log.Println("error decoding:", err)
-			}
-
-			if !utils.CheckPassphrase(s.currentHash, incomingClient.PassUsed) {
-				conn.Write([]byte("server rejected your passphrase. check and re-enter\n"))
-				log.Printf("rejected %q for wrong passphrase", incomingClient.Name)
-				// in the future allow up to 3 tries before closing the client's
-				// connection to allow that flexibility and great UX
-				conn.Close()
-				continue
-			}
-			newClient := incomingClient
-			newClient.Conn = conn
-			s.Clients = append(s.Clients, newClient)
 		}
 
-		go handleNewClient(conn)
+		// send the header as bytes to the client on connect to confirm it's the
+		// correct port and server
+		ok, err := sendHeader(ctx, conn, header)
+		if !ok {
+			log.Println(err)
+			continue
+		}
 
+		buf := make([]byte, 1024)
+		_, err = conn.Read(buf)
+		if err != nil {
+			log.Println("error reading from connection:", err)
+		}
+		fromClient.Write(buf)
+
+		err = enc.Decode(&incomingClient)
+		if err != nil {
+			log.Println("error decoding:", err)
+		}
+
+		if !utils.CheckPassphrase(s.currentHash, incomingClient.PassUsed) {
+			conn.Write([]byte("server rejected your passphrase. check and re-enter\n"))
+			log.Printf("rejected %q for wrong passphrase", incomingClient.Name)
+			// in the future allow up to 3 tries before closing the client's
+			// connection to allow that flexibility and great UX
+			conn.Close()
+			continue
+		}
+		newClient := incomingClient
+		newClient.Conn = conn
+		s.Clients = append(s.Clients, newClient)
+
+		go handleNewClient(conn)
 	}
 }
 

@@ -1,13 +1,40 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+	"willofdaedalus/superluminal/config"
 )
+
+func sendHeader(ctx context.Context, conn net.Conn, header string) (bool, error) {
+	fmt.Println("sending header")
+	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(config.MaxConnectionTime))
+	defer cancel()
+
+	errChan := make(chan error, 1)
+	go func() {
+		modifiedHeader := fmt.Sprintf("%s.%d", header, time.Now().Unix())
+		_, err := conn.Write([]byte(modifiedHeader))
+		errChan <- err
+	}()
+
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return false, fmt.Errorf("couldn't send header to client: %v", err)
+		}
+	case <-ctx.Done():
+		return false, fmt.Errorf("context canceled before sending header to client")
+	}
+
+	return true, nil
+}
 
 func getIpAddr() (string, error) {
 	ifaces, err := net.Interfaces()

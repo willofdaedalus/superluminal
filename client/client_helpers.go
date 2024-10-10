@@ -15,6 +15,11 @@ func validateHeader(header []byte) (bool, error) {
 		return false, fmt.Errorf("no header received")
 	}
 
+	// in the event the server is full
+	if strings.Contains(string(header), config.ServerFull) {
+		return false, fmt.Errorf("server is at capacity. contact the session owner")
+	}
+
 	// look for the first delimiter (.)
 	firstDelim := bytes.IndexByte(header, '.')
 	if firstDelim == -1 {

@@ -10,6 +10,7 @@ const (
 	NoSuchHost = "no such host"
 	RejectedPass = "server rejected your passphrase"
 	ServerIO = "i/o timeout"
+	ServerFull = "server is at capacity"
 )
 
 var (

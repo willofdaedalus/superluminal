@@ -57,17 +57,17 @@ func getIpAddr() (string, error) {
 				ip = v.IP
 			}
 
-			// Skip loopback addresses
+			// skip loopback addresses
 			if ip.IsLoopback() {
 				continue
 			}
 
-			// Handle both IPv4 and IPv6
+			// handle both ipv4 and ipv6
 			if ip.To4() != nil {
-				// Return first valid IPv4 address
+				// return first valid ipv4 address
 				return ip.String(), nil
 			} else if ip.To16() != nil {
-				// Return first valid IPv6 address
+				// return first valid ipv6 address
 				return ip.String(), nil
 			}
 		}

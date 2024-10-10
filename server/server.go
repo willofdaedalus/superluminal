@@ -26,6 +26,7 @@ type Server struct {
 	Owner         c.Client
 	Buffer        bytes.Buffer
 	maxConns      int
+	numConns      int
 	port          string
 	addr          string
 	currentHash   string
@@ -101,6 +102,13 @@ func (s *Server) StartServer() {
 			log.Println("error is:", err)
 		}
 
+		// check that the server doesn't take more than it can handle
+		if s.numConns == s.maxConns {
+			fmt.Println("server full")
+			conn.Write([]byte(config.ServerFull))
+			conn.Close()
+			continue
+		}
 		// send the header as bytes to the client on connect to confirm it's the
 		// correct port and server
 		ok, err := sendHeader(ctx, conn, header)
@@ -134,9 +142,11 @@ func (s *Server) StartServer() {
 			conn.Close()
 			continue
 		}
+
 		newClient := incomingClient
 		newClient.Conn = conn
 		s.Clients = append(s.Clients, newClient)
+		s.numConns += 1
 
 		go handleNewClient(conn)
 	}

@@ -55,6 +55,7 @@ func validateHeader(header []byte) (bool, error) {
 	unixTime := time.Unix(timestamp, 0)
 	now := time.Since(unixTime).Seconds()
 	if now > float64(config.MaxConnectionTime) {
+		// this might always return false in the event of different timezones
 		return false, fmt.Errorf("time difference too large. rejected")
 	}
 
@@ -73,6 +74,7 @@ func handleReadError(err error) error {
 	} else if strings.Contains(opErr.Error(), config.ConnectionReset) {
 		return fmt.Errorf("server reset connection because it shut down; didn't receive authentication key")
 	} else if strings.Contains(opErr.Error(), config.ServerIO) {
+		// remember to retry several times before giving up
 		return fmt.Errorf("deadline for reading authentication key exceeded due to i/o timeout")
 	}
 

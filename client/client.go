@@ -46,8 +46,9 @@ func CreateClient(name string, owner bool, conn net.Conn) *Client {
 	return c
 }
 
-func (c *Client) ListenForMessages(ctx context.Context) {
+func (c *Client) ListenForMessages() error {
 	buf := make([]byte, 1024)
+	var returnErr error
 
 	for {
 		// case <-ctx.Done():
@@ -56,34 +57,30 @@ func (c *Client) ListenForMessages(ctx context.Context) {
 		n, err := c.Conn.Read(buf)
 		if err != nil {
 			opErr, _ := err.(*net.OpError)
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				// this could be a kick
-				log.Println("server closed unexpectedly")
-				c.Conn.Close()
-				return
-			}
-			// if !ok {
-			// 	fmt.Println("not network error:", err)
-			// 	c.Conn.Close()
-			// 	return
-			// }
-			// deadline for reading from the server time out
-			if errors.Is(opErr.Err, os.ErrDeadlineExceeded) {
+				returnErr = fmt.Errorf("server closed unexpectedly")
+				// c.Conn.Close()
+			} else if errors.Is(opErr.Err, os.ErrDeadlineExceeded) {
+				// deadline for reading from the server time out
+				// MAKE SURE THIS DOESN'T KEEP THE CLIENT "CONNECTED" EVEN
+				// AFTER THERE'S A NETWORK PROBLEM WITH THE CLIENT
 				log.Println("read timed out. reseting...")
 				c.Conn.SetDeadline(time.Now().Add(config.MaxConnectionTime))
 				continue
+			} else {
+				returnErr = handleReadError(err)
 			}
-			// if err != io.EOF {
-			// 	log.Printf("connection closed for client %q: %v", c.Name, err)
-			// 	c.Alive = false
-			// 	return
-			// }
+
+			return returnErr
 		}
 
 		message := string(buf[:n])
 		if strings.Contains(message, config.RejectedPass) {
-			fmt.Println(message)
-			return
+			return fmt.Errorf(message)
+		} else if message == config.ShutdownMsg {
+			fmt.Println("server is shutting down")
+			return nil
 		}
 		fmt.Println(message)
 	}
@@ -124,22 +121,15 @@ func ConnectToServer(ctx context.Context, pass string) error {
 		return fmt.Errorf("struct encoding err: %v", err)
 	}
 
-	errChan := make(chan error)
-	go func() {
-		_, err = conn.Write(toSend.Bytes())
-		errChan <- err
-	}()
-
-	select {
-	case err = <-errChan:
-		if err != nil {
-			return fmt.Errorf("couldn't send the struct across the network: %v", err)
-		}
-		// case <-ctx.Done():
-		// 	conn.Close()
-		// 	return fmt.Errorf("couldn't find or connect to server: %v", err)
+	_, err = conn.Write(toSend.Bytes())
+	if err != nil {
+		return fmt.Errorf("couldn't send client across the network: %v", err)
 	}
 
-	client.ListenForMessages(ctx)
+	err = client.ListenForMessages()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }

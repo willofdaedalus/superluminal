@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 	c "willofdaedalus/superluminal/client"
+	"willofdaedalus/superluminal/config"
 	"willofdaedalus/superluminal/utils"
 )
 
@@ -33,6 +34,7 @@ type Server struct {
 	listener      net.Listener
 	sig           chan os.Signal
 	signals       []os.Signal
+	shutdownSent  bool
 }
 
 func CreateServer(name string, maxConns int) (*Server, error) {
@@ -142,6 +144,12 @@ func (s *Server) StartServer() {
 
 func (s *Server) ShutdownServer() {
 	fmt.Println("server shutting down...")
+	for _, client := range s.Clients {
+		if !client.Master {
+			client.Conn.Write([]byte(config.ShutdownMsg))
+		}
+	}
+
 	s.listener.Close()
 }
 

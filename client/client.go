@@ -64,8 +64,10 @@ func ConnectToServer(ctx context.Context, pass string) error {
 
 		// never confirmed from the server
 		if !validSession {
+			header := buf[0:21]
+			fmt.Println(string(header))
 			// we only need the first 21 bytes for validation
-			if err = validateHeader(buf[:21]); err != nil {
+			if err = validateHeader(header); err != nil {
 				return err
 			}
 
@@ -84,6 +86,7 @@ func ConnectToServer(ctx context.Context, pass string) error {
 			}
 
 			validSession = true
+			continue
 		}
 
 		fmt.Println(string(buf))

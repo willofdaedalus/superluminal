@@ -31,6 +31,7 @@ func validateHeader(header []byte) error {
 		return config.ErrEmptyHeader
 	}
 
+	// move this out of this function
 	if strings.Contains(string(header), config.ServerFull) {
 		return config.ErrServerFull
 	}
@@ -67,7 +68,8 @@ func parseHeader(header []byte) (v, id, tsBytes []byte, err error) {
 	id = header[firstDelim+1 : secondDelim]
 	tsBytes = header[secondDelim+1:]
 
-	if len(tsBytes) == 0 {
+	// make sure the timestamp is valid
+	if len(tsBytes) < 10 {
 		return nil, nil, nil, config.ErrInvalidTimestamp
 	}
 
@@ -123,6 +125,7 @@ func handleReadError(c *Client, err error) error {
 	}
 
 	switch {
+	// make sure the server sends a shutdown message
 	case errors.Is(err, io.EOF):
 		return config.ErrServerShutdown
 	}

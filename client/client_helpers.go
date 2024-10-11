@@ -26,117 +26,126 @@ func handleMessage(message string) error {
 	}
 }
 
-func handleServerReadErr(c *Client, err error) error {
-	opErr, _ := err.(*net.OpError)
-
-	switch {
-	case errors.Is(err, io.EOF):
-		// this could be a kick
-		return fmt.Errorf("server closed unexpectedly")
-		// c.Conn.Close()
-	case errors.Is(opErr.Err, os.ErrDeadlineExceeded):
-		// deadline for reading from the server time out
-		// MAKE SURE THIS DOESN'T KEEP THE CLIENT "CONNECTED" EVEN
-		// AFTER THERE'S A NETWORK PROBLEM WITH THE CLIENT
-		// log.Println("read timed out. reseting...")
-		c.Conn.SetDeadline(time.Now().Add(config.MaxConnectionTime))
-		return nil
-	default:
-		return handleReadError(err)
-	}
-}
-
-func validateHeader(header []byte) (bool, error) {
+func validateHeader(header []byte) error {
 	if len(header) == 0 {
-		return false, fmt.Errorf("no header received from server")
+		return config.ErrEmptyHeader
 	}
 
 	if strings.Contains(string(header), config.ServerFull) {
-		return false, fmt.Errorf("server is at capacity. contact the session owner")
+		return config.ErrServerFull
 	}
 
-	version, identifier, timestampBytes, err := parseHeader(header)
+	v, id, tsBytes, err := parseHeader(header)
 	if err != nil {
-		return false, err
+		return err
 	}
 
-	if !bytes.Equal(version, []byte("v1")) {
-		return false, fmt.Errorf("invalid version")
+	if !bytes.Equal(v, []byte("v1")) {
+		return config.ErrInvalidHeaderFormat
 	}
 
-	if !bytes.Equal(identifier, []byte("sprlmnl")) {
-		return false, fmt.Errorf("invalid identifier")
+	if !bytes.Equal(id, []byte("sprlmnl")) {
+		return config.ErrInvalidHeaderFormat
 	}
 
-	return validateTimestamp(timestampBytes)
+	return validateTimestamp(tsBytes)
 }
 
-func parseHeader(header []byte) (version, identifier, timestampBytes []byte, err error) {
+func parseHeader(header []byte) (v, id, tsBytes []byte, err error) {
 	firstDelim := bytes.IndexByte(header, '.')
 	if firstDelim == -1 {
-		return nil, nil, nil, fmt.Errorf("invalid header format")
+		return nil, nil, nil, config.ErrInvalidHeaderFormat
 	}
 
-	version = header[:firstDelim]
+	v = header[:firstDelim]
 
 	secondDelim := bytes.IndexByte(header[firstDelim+1:], '.') + firstDelim + 1
 	if secondDelim == firstDelim {
-		return nil, nil, nil, fmt.Errorf("invalid header format")
+		return nil, nil, nil, config.ErrInvalidHeaderFormat
 	}
 
-	identifier = header[firstDelim+1 : secondDelim]
-	timestampBytes = header[secondDelim+1:]
+	id = header[firstDelim+1 : secondDelim]
+	tsBytes = header[secondDelim+1:]
 
-	if len(timestampBytes) == 0 {
-		return nil, nil, nil, fmt.Errorf("timestamp missing")
+	if len(tsBytes) == 0 {
+		return nil, nil, nil, config.ErrInvalidTimestamp
 	}
 
-	return version, identifier, timestampBytes, nil
+	return v, id, tsBytes, nil
 }
 
-func validateTimestamp(timestampBytes []byte) (bool, error) {
-	timestamp, err := strconv.ParseInt(string(timestampBytes), 10, 64)
+func validateTimestamp(tsBytes []byte) error {
+	timestamp, err := strconv.ParseInt(string(tsBytes), 10, 64)
 	if err != nil {
-		return false, fmt.Errorf("failed to parse timestamp: %v", err)
+		return config.ErrInvalidTimestamp
 	}
 
 	unixTime := time.Unix(timestamp, 0)
 	now := time.Since(unixTime).Seconds()
 	if now > float64(config.MaxConnectionTime) {
-		return false, fmt.Errorf("time difference too large. rejected")
+		return config.ErrTimeDifference
 	}
 
-	return true, nil
+	return nil
 }
 
 func readAndValidateHeader(conn net.Conn) error {
 	header := make([]byte, 21)
 	_, err := conn.Read(header)
 	if err != nil {
-		return handleReadError(err)
+		return handleReadError(nil, err)
 	}
 
-	if ok, err := validateHeader(header); !ok {
+	if err := validateHeader(header); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func handleReadError(err error) error {
-	opErr, ok := err.(*net.OpError)
-	if !ok {
-		return err
+func handleReadError(c *Client, err error) error {
+	var opErr *net.OpError
+
+	if errors.As(err, &opErr) {
+		switch {
+		case strings.Contains(opErr.Error(), config.ServerClosed):
+			return config.ErrServerClosed
+		case strings.Contains(opErr.Error(), config.ConnectionReset):
+			return config.ErrServerReset
+		case strings.Contains(opErr.Error(), config.ServerIO):
+			return config.ErrDeadlineTimeout
+		case errors.Is(opErr, os.ErrDeadlineExceeded):
+			c.Conn.SetDeadline(time.Now().Add(config.MaxConnectionTime))
+			return nil
+		default: // specific error not parsed
+			return err
+		}
 	}
 
 	switch {
-	case strings.Contains(opErr.Error(), config.ServerClosed):
-		return fmt.Errorf("server not accepting connections; didn't receive authentication key")
-	case strings.Contains(opErr.Error(), config.ConnectionReset):
-		return fmt.Errorf("server reset connection because it shut down; didn't receive authentication key")
-	case strings.Contains(opErr.Error(), config.ServerIO):
-		return fmt.Errorf("deadline for reading authentication key exceeded due to i/o timeout")
-	default:
-		return err
+	case errors.Is(err, io.EOF):
+		return config.ErrServerShutdown
 	}
+
+	return err
 }
+
+// func handleServerReadErr(c *Client, err error) error {
+// 	opErr, _ := err.(*net.OpError)
+//
+// 	switch {
+// 	case errors.Is(err, io.EOF):
+// 		// this could be a kick
+// 		return fmt.Errorf("server closed unexpectedly")
+// 		// c.Conn.Close()
+// 	case errors.Is(opErr.Err, os.ErrDeadlineExceeded):
+// 		// deadline for reading from the server time out
+// 		// MAKE SURE THIS DOESN'T KEEP THE CLIENT "CONNECTED" EVEN
+// 		// AFTER THERE'S A NETWORK PROBLEM WITH THE CLIENT
+// 		// log.Println("read timed out. reseting...")
+// 		c.Conn.SetDeadline(time.Now().Add(config.MaxConnectionTime))
+// 		return nil
+// 	default:
+// 		return handleReadError(err)
+// 	}
+// }

@@ -39,31 +39,13 @@ func CreateClient(name string, owner bool, conn net.Conn) *Client {
 	return c
 }
 
-func (c *Client) ListenForMessages() error {
-	buf := make([]byte, 1024)
-
-	for {
-		n, err := c.Conn.Read(buf)
-		if err != nil {
-			// in this case it was a timeout error
-			if handleServerReadErr(c, err) == nil {
-				fmt.Println("timeout reset")
-				continue
-			}
-
-			return handleServerReadErr(c, err)
-		}
-
-		message := string(buf[:n])
-		if err := handleMessage(message); err != nil {
-			return err
-		}
-	}
-}
-
 func ConnectToServer(ctx context.Context, pass string) error {
 	var d net.Dialer
 	var toSend bytes.Buffer
+	var validSession bool
+	var client *Client
+	buf := make([]byte, 1024)
+	// var errChan chan error
 
 	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(config.MaxConnectionTime))
 	defer cancel()
@@ -74,27 +56,36 @@ func ConnectToServer(ctx context.Context, pass string) error {
 	}
 	defer conn.Close()
 
-	// set a deadline for the read operation
-	conn.SetDeadline(time.Now().Add(config.MaxConnectionTime))
-	if err = readAndValidateHeader(conn); err != nil {
-		return err
-	}
-
-	// create a new client and then transport only the necessary parts to the client
-	client := CreateClient("john doe", false, conn)
-	client.PassUsed = pass
-	enc := gob.NewEncoder(&toSend)
-	err = enc.Encode(client.TransportClient)
-	if err != nil {
-		return fmt.Errorf("struct encoding err: %v", err)
-	}
-
-	_, err = conn.Write(toSend.Bytes())
-	if err != nil {
-		return fmt.Errorf("couldn't send client across the network: %v", err)
-	}
-
 	for {
-		return client.ListenForMessages()
+		_, err = conn.Read(buf)
+		if err != nil {
+			return handleReadError(client, err)
+		}
+
+		// never confirmed from the server
+		if !validSession {
+			// we only need the first 21 bytes for validation
+			if err = validateHeader(buf[:21]); err != nil {
+				return err
+			}
+
+			// only send the struct once the header is validated
+			client = CreateClient("john doe", false, conn)
+			client.PassUsed = pass
+			enc := gob.NewEncoder(&toSend)
+			err = enc.Encode(client.TransportClient)
+			if err != nil {
+				return config.ErrEncodingClient
+			}
+
+			_, err = conn.Write(toSend.Bytes())
+			if err != nil {
+				return config.ErrSendingClient
+			}
+
+			validSession = true
+		}
+
+		fmt.Println(string(buf))
 	}
 }

@@ -84,6 +84,7 @@ func handleNewClient(conn net.Conn) {
 		log.Println(err)
 		return
 	}
+	fmt.Println("sent welcome message to client")
 }
 
 func (s *Server) handleSignals() {

@@ -25,8 +25,8 @@ type Server struct {
 	Clients       []c.Client
 	Owner         c.Client
 	Buffer        bytes.Buffer
-	maxConns      int
 	numConns      int
+	maxConns      int
 	port          string
 	addr          string
 	currentHash   string
@@ -77,10 +77,10 @@ func CreateServer(name string, maxConns int) (*Server, error) {
 		Clients:       []c.Client{*masterClient},       // append master to the list of clients
 		serverStarted: time.Now(),                      // timestampo for start of server
 		hashTimeOut:   time.Now().Add(time.Minute * 5), // hash times out after 5mins
+		maxConns:      maxConns + 1,                    // plus one to account for master client
 		listener:      listener,
 		signals:       sigs,
 		currentHash:   hash,
-		maxConns:      maxConns,
 	}, nil
 }
 
@@ -103,7 +103,7 @@ func (s *Server) StartServer() {
 		}
 
 		// check that the server doesn't take more than it can handle
-		if s.numConns == s.maxConns {
+		if len(s.Clients) == s.maxConns {
 			fmt.Println("server full")
 			conn.Write([]byte(config.ServerFull))
 			conn.Close()
@@ -146,7 +146,6 @@ func (s *Server) StartServer() {
 		newClient := incomingClient
 		newClient.Conn = conn
 		s.Clients = append(s.Clients, newClient)
-		s.numConns += 1
 
 		go handleNewClient(conn)
 	}

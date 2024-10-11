@@ -87,6 +87,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		fmt.Println("exiting client")
 	} else {
 		fmt.Println("You must either provide '-start' to run the server or '-c' to connect to one.")
 	}

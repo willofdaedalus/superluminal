@@ -18,7 +18,9 @@ import (
 )
 
 const (
-	header = "v1.sprlmnl"
+	header             = "v1.sprlmnl."
+	retryAttempts      = 4
+	passphraseAttempts = 3
 )
 
 type Server struct {
@@ -48,12 +50,7 @@ func CreateServer(name string, maxConns int) (*Server, error) {
 
 	sigs := []os.Signal{syscall.SIGTERM, syscall.SIGABRT, syscall.SIGINT}
 
-	_, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		return nil, fmt.Errorf("couldn't start server for superluminal")
-	}
-
-	addr, err := getIpAddr()
+	addr, port, err := getServerDetails(listener)
 	if err != nil {
 		return nil, err
 	}
@@ -86,10 +83,9 @@ func CreateServer(name string, maxConns int) (*Server, error) {
 
 func (s *Server) StartServer() {
 	var fromClient bytes.Buffer
-	var incomingClient c.Client
+	var incomingClient c.TransportClient
 
 	ctx := context.Background()
-	enc := gob.NewDecoder(&fromClient)
 	s.handleSignals()
 	fmt.Printf("server started at %q\n", fmt.Sprintf("%s:%s", s.addr, s.port))
 
@@ -103,51 +99,130 @@ func (s *Server) StartServer() {
 		}
 
 		// check that the server doesn't take more than it can handle
-		if len(s.Clients) == s.maxConns {
-			fmt.Println("server full")
-			conn.Write([]byte(config.ServerFull))
+		if len(s.Clients) >= s.maxConns {
+			sendMessage(ctx, conn, config.PreErr, config.ServerFull)
 			conn.Close()
 			continue
 		}
-		// send the header as bytes to the client on connect to confirm it's the
-		// correct port and server
-		ok, err := sendHeader(ctx, conn, header)
-		if !ok {
-			log.Println(err)
-			continue
-		}
 
-		buf := make([]byte, 1024)
-		_, err = conn.Read(buf)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				log.Println("client disconnected")
-				continue
+		var correctPass, headerSent bool
+		func(ctx context.Context, conn net.Conn) {
+			// every decoder needs to be new
+			enc := gob.NewDecoder(&fromClient)
+			handshakeCtx, cancel := context.WithTimeout(ctx, config.MaxServerHandshakeTime)
+			defer cancel()
+
+			// send header
+			clientHeader := fmt.Sprintf("%s%d", header, time.Now().Unix())
+			for i := 0; i < retryAttempts; i++ {
+				if err := sendMessage(handshakeCtx, conn, config.PreHeader, clientHeader); err != nil {
+					log.Println("Error:", err)
+					log.Println("Retrying handshake attempt", i+1)
+					continue
+				}
+
+				// Successfully sent message, break out of loop
+				fmt.Println("sent header")
+				headerSent = true
+				break
 			}
-			log.Println(err)
-			continue
+
+			if !headerSent {
+				if err := conn.Close(); err != nil {
+					log.Println("Error closing connection:", err)
+				}
+
+				return
+			}
+
+			// Read incoming data
+			buf := make([]byte, 1024)
+			n, err := conn.Read(buf)
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					log.Println("client disconnected")
+					return
+				}
+				log.Println("Error reading from connection:", err)
+				return
+			}
+
+			fromClient.Write(buf[:n])
+
+			// decode incoming client data
+			err = enc.Decode(&incomingClient)
+			if err != nil {
+				log.Println("Error decoding client data:", err)
+				return
+			}
+
+			// check the passphrase
+			for i := 0; i < passphraseAttempts; i++ {
+				if utils.CheckPassphrase(s.currentHash, incomingClient.PassUsed) {
+					correctPass = true
+					break
+				}
+
+				if i == passphraseAttempts-1 {
+					return
+				}
+
+				// if passphrase is incorrect, retry sending an error
+				for j := 0; j < retryAttempts; j++ {
+					if err := sendMessage(handshakeCtx, conn, config.PreErr, config.RejectedPass); err != nil {
+						log.Println("Error sending rejected pass message:", err)
+						log.Println("Retrying message send", j+1)
+						continue
+					}
+					break
+				}
+
+				// read another attempt from the client
+				fmt.Println("reading pass")
+				n, err := conn.Read(buf)
+				if err != nil {
+					if errors.Is(err, io.EOF) {
+						log.Println("client disconnected")
+						return
+					}
+					log.Println("Error reading from connection:", err)
+					return
+				}
+				incomingClient.PassUsed = string(buf[:n])
+			}
+		}(ctx, conn)
+
+
+		// if the password was incorrect after attempts close the connection if
+		// we can't send the clientauthfailed message to the client
+		if !correctPass {
+			for j := 0; j < retryAttempts; j++ {
+				if err := sendMessage(ctx, conn, config.PreErr, config.ClientAuthFailed); err != nil {
+					log.Println("Error sending auth failure message:", err)
+					log.Println("Retrying to notify client", j+1)
+					continue
+				}
+				// successfully notified client
+				break
+			}
+
+			// if message sending failed after retries, close the connection
+			if err := conn.Close(); err != nil {
+				log.Println("Error closing connection:", err)
+			}
+
+			log.Println("sprlmnl: kicked client for wrong passphrase")
+		} else {
+			// Add the authenticated client to the list
+			var newClient c.Client
+			newClient.TransportClient = incomingClient
+			newClient.Conn = conn
+			s.Clients = append(s.Clients, newClient)
+			incomingClient = c.TransportClient{}
+
+			// handle the new client connection
+			go handleNewClient(conn)
 		}
-		fromClient.Write(buf)
-
-		err = enc.Decode(&incomingClient)
-		if err != nil {
-			log.Println("error decoding:", err)
-		}
-
-		if !utils.CheckPassphrase(s.currentHash, incomingClient.PassUsed) {
-			conn.Write([]byte("server rejected your passphrase. check and re-enter\n"))
-			log.Printf("rejected %q for wrong passphrase", incomingClient.Name)
-			// in the future allow up to 3 tries before closing the client's
-			// connection to allow that flexibility and great UX
-			conn.Close()
-			continue
-		}
-
-		newClient := incomingClient
-		newClient.Conn = conn
-		s.Clients = append(s.Clients, newClient)
-
-		go handleNewClient(conn)
 	}
 }
 
@@ -155,7 +230,7 @@ func (s *Server) ShutdownServer() {
 	fmt.Println("server shutting down...")
 	for _, client := range s.Clients {
 		if !client.Master {
-			client.Conn.Write([]byte(config.ShutdownMsg))
+			client.Conn.Write([]byte("SHT:"))
 		}
 	}
 
@@ -164,4 +239,14 @@ func (s *Server) ShutdownServer() {
 
 func (s *Server) AcceptNewClient(client *c.Client) {
 	s.Clients = append(s.Clients, *client)
+}
+
+func (s *Server) canAcceptConnections(conn net.Conn) bool {
+	// +1 to offset the master client
+	if len(s.Clients) >= s.maxConns+1 {
+		conn.Write([]byte(config.ServerFull))
+		conn.Close()
+		return false
+	}
+	return true
 }

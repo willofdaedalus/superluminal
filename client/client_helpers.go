@@ -27,8 +27,8 @@ func handleMessage(message string) error {
 }
 
 func validateHeader(header []byte) error {
-	if len(header) == 0 {
-		return config.ErrEmptyHeader
+	if len(header) != 21 {
+		return config.ErrHeaderShort
 	}
 
 	// move this out of this function

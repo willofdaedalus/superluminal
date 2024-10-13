@@ -13,13 +13,9 @@ import (
 )
 
 func sendHeader(ctx context.Context, conn net.Conn, header string) (bool, error) {
-	fmt.Println("sending header")
-	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(config.MaxConnectionTime))
-	defer cancel()
-
 	errChan := make(chan error, 1)
 	go func() {
-		modifiedHeader := fmt.Sprintf("%s.%d", header, time.Now().Unix())
+		modifiedHeader := fmt.Sprintf("%s%s.%d", config.PreHeader, header, time.Now().Unix())
 		_, err := conn.Write([]byte(modifiedHeader))
 		errChan <- err
 	}()
@@ -76,15 +72,28 @@ func getIpAddr() (string, error) {
 	return "", fmt.Errorf("no valid IP address found")
 }
 
-func handleNewClient(conn net.Conn) {
+func (s *Server) handleNewClient(conn net.Conn) {
 	fmt.Printf("someone connected on %s\n", conn.RemoteAddr().String())
 
-	_, err := conn.Write([]byte("hello and welcome to the session"))
+	_, err := conn.Write([]byte("INF:welcome to the session"))
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	fmt.Println("sent welcome message to client")
+}
+
+func getServerDetails(listener net.Listener) (string, string, error) {
+	_, port, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		return "", "", config.ErrServerFailStart
+	}
+
+	addr, err := getIpAddr()
+	if err != nil {
+		return "", "", err
+	}
+
+	return addr, port, nil
 }
 
 func (s *Server) handleSignals() {
@@ -104,4 +113,23 @@ func (s *Server) handleSignals() {
 			}
 		}
 	}()
+}
+
+func sendMessage(ctx context.Context, conn net.Conn, msgHeader string, message string) error {
+	errChan := make(chan error, 1)
+	go func() {
+		msg := fmt.Sprintf("%s%s", msgHeader, message)
+		_, err := conn.Write([]byte(msg))
+		errChan <- err
+	}()
+
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return fmt.Errorf("couldn't send header to client: %v", err)
+		}
+		return nil
+	case <-ctx.Done():
+		return config.ErrServerCtxTimeout
+	}
 }

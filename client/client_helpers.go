@@ -2,29 +2,21 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"willofdaedalus/superluminal/config"
+	"willofdaedalus/superluminal/utils"
 )
-
-func handleMessage(message string) error {
-	switch {
-	case strings.Contains(message, config.RejectedPass):
-		return fmt.Errorf(message)
-	case message == config.ShutdownMsg:
-		// fmt.Println("server is shutting down")
-		return fmt.Errorf("server is shutting down")
-	default:
-		fmt.Println(message)
-		return nil
-	}
-}
 
 func validateHeader(header []byte) error {
 	if len(header) != 21 {
@@ -95,6 +87,7 @@ func readAndValidateHeader(conn net.Conn) error {
 	header := make([]byte, 21)
 	_, err := conn.Read(header)
 	if err != nil {
+		fmt.Println("read and validate")
 		return handleReadError(nil, err)
 	}
 
@@ -133,22 +126,34 @@ func handleReadError(c *Client, err error) error {
 	return err
 }
 
-// func handleServerReadErr(c *Client, err error) error {
-// 	opErr, _ := err.(*net.OpError)
-//
-// 	switch {
-// 	case errors.Is(err, io.EOF):
-// 		// this could be a kick
-// 		return fmt.Errorf("server closed unexpectedly")
-// 		// c.Conn.Close()
-// 	case errors.Is(opErr.Err, os.ErrDeadlineExceeded):
-// 		// deadline for reading from the server time out
-// 		// MAKE SURE THIS DOESN'T KEEP THE CLIENT "CONNECTED" EVEN
-// 		// AFTER THERE'S A NETWORK PROBLEM WITH THE CLIENT
-// 		// log.Println("read timed out. reseting...")
-// 		c.Conn.SetDeadline(time.Now().Add(config.MaxConnectionTime))
-// 		return nil
-// 	default:
-// 		return handleReadError(err)
-// 	}
-// }
+func handleSignals(conn net.Conn) {
+	sig := make(chan os.Signal, 1)
+
+	signals := []os.Signal{
+		syscall.SIGTERM,
+		syscall.SIGABRT,
+		syscall.SIGINT,
+		syscall.SIGHUP,
+		syscall.SIGQUIT,
+	}
+
+	signal.Notify(sig, signals...)
+
+	for {
+		select {
+		case s := <-sig:
+			switch s {
+			case syscall.SIGQUIT, syscall.SIGABRT, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP:
+				err := utils.SendMessage(context.TODO(), conn, config.PreShutdown, "", nil)
+				if err != nil {
+					log.Println("error sending shutdown message:", err)
+				}
+				if err := conn.Close(); err != nil {
+					log.Println("error closing connection:", err)
+				}
+				return
+				// return fmt.Errorf("exiting client")
+			}
+		}
+	}
+}

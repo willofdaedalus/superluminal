@@ -1,9 +1,5 @@
 package client
 
-// send user's password to the server for authentication
-// once the user is authenticated, encode and send the whole user client
-// object to the server to decode and store
-
 import (
 	"bufio"
 	"bytes"
@@ -18,31 +14,24 @@ import (
 )
 
 var (
-	readAttempts = 3
-
 	client *Client
 	reader *bufio.Reader = bufio.NewReader(os.Stdin)
 )
 
 type TransportClient struct {
-	Name       string    // name user sends to application
-	Alive      bool      // client still connected
-	Master     bool      // owner of the current
-	TimeJoined int64 // timestamp of when client connected
-	PassUsed   string
+	Name     string // name user sends to application
+	PassUsed string
 }
 
 type Client struct {
 	TransportClient
-	Conn net.Conn
+	Conn       net.Conn
+	TimeJoined int64
 }
 
-func CreateClient(name string, owner bool, conn net.Conn) *Client {
+func CreateClient(name string, conn net.Conn) *Client {
 	c := &Client{}
 	c.Name = name
-	c.TimeJoined = time.Now().Unix()
-	c.Alive = true
-	c.Master = owner
 	c.Conn = conn
 
 	return c
@@ -61,6 +50,9 @@ func ConnectToServer(ctx context.Context, pass string) error {
 	}
 	defer conn.Close()
 
+	// need to find a way to exit if the read is blocked
+	go handleSignals(conn)
+
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
@@ -76,7 +68,8 @@ func ConnectToServer(ctx context.Context, pass string) error {
 			}
 			fmt.Println("sent client data")
 		case config.PreShutdown:
-			return config.ErrServerShutdown
+			return nil
+			// return config.ErrServerShutdown
 		case config.PreInfo:
 			fmt.Println(string(buf[4:n]))
 		case config.PreErr:
@@ -123,13 +116,14 @@ func validateAndJoin(header []byte, conn net.Conn, pass string) error {
 	}
 
 	// Create the client and send data once validated
-	client = CreateClient(fmt.Sprintf("%d", time.Now().UnixMicro()), false, conn)
+	client = CreateClient(fmt.Sprintf("%d", time.Now().UnixMicro()), conn)
 	client.PassUsed = pass
 	enc := gob.NewEncoder(&toSend)
 	if err := enc.Encode(client.TransportClient); err != nil {
 		return config.ErrEncodingClient
 	}
 
+	// not using the sendmessage function to preserver byte order
 	if _, err := conn.Write(toSend.Bytes()); err != nil {
 		return config.ErrSendingClient
 	}

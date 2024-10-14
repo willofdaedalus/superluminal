@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 	"willofdaedalus/superluminal/config"
+	"willofdaedalus/superluminal/utils"
 )
 
 func sendHeader(ctx context.Context, conn net.Conn, header string) (bool, error) {
@@ -72,13 +73,36 @@ func getIpAddr() (string, error) {
 	return "", fmt.Errorf("no valid IP address found")
 }
 
-func (s *Server) handleNewClient(conn net.Conn) {
+func (s *Server) handleNewClient(conn net.Conn, id string) {
 	fmt.Printf("someone connected on %s\n", conn.RemoteAddr().String())
-
-	_, err := conn.Write([]byte("INF:welcome to the session"))
+	err := utils.SendMessage(
+		context.TODO(),
+		conn,
+		config.PreInfo,
+		"welcome to the session",
+		config.ErrServerCtxTimeout,
+	)
 	if err != nil {
-		log.Println(err)
+		log.Println("error sending auth failure message:", err)
 		return
+	}
+
+	buf := make([]byte, 1024)
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			return
+		}
+
+		fmt.Println("read ", string(buf[:n]))
+
+		msgHdr := string(buf[:4])
+		switch msgHdr {
+		case config.PreShutdown:
+			delete(s.clients, id)
+			fmt.Println("goodbye client", id)
+			return
+		}
 	}
 }
 
@@ -97,12 +121,12 @@ func getServerDetails(listener net.Listener) (string, string, error) {
 }
 
 func (s *Server) handleSignals() {
-	s.sig = make(chan os.Signal, 1)
-	signal.Notify(s.sig, s.signals...)
+	s.signal = make(chan os.Signal, 1)
+	signal.Notify(s.signal, s.signals...)
 
 	go func() {
 		for {
-			switch <-s.sig {
+			switch <-s.signal {
 			case syscall.SIGQUIT,
 				syscall.SIGABRT,
 				syscall.SIGTERM,

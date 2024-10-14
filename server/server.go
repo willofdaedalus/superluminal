@@ -42,7 +42,6 @@ type Server struct {
 }
 
 func CreateServer(name string, maxConns int) (*Server, error) {
-
 	listener, err := net.Listen("tcp", "localhost:42024")
 	if err != nil {
 		return nil, fmt.Errorf("couldn't start server for superluminal")
@@ -59,17 +58,8 @@ func CreateServer(name string, maxConns int) (*Server, error) {
 		return nil, err
 	}
 
-	pass, err := utils.GeneratePassphrase()
-	if err != nil {
-		return nil, err
-	}
-
+	pass, hash, _ := genPassAndHash()
 	fmt.Println("your pass is:", pass)
-
-	hash, err := utils.HashPassphrase(pass)
-	if err != nil {
-		return nil, err
-	}
 
 	initialClientID[masterID.String()] = masterClient
 	return &Server{
@@ -77,12 +67,12 @@ func CreateServer(name string, maxConns int) (*Server, error) {
 		owner:         masterID.String(),
 		addr:          addr,
 		port:          port,
-		serverStarted: time.Now(),                      // timestampo for start of server
+		serverStarted: time.Now(), // timestampo for start of server
 		hashTimeOut:   time.Now().Add(time.Minute * 5), // hash times out after 5mins
-		maxConns:      maxConns + 1,                    // plus one to account for master client
-		listener:      listener,
-		signals:       sigs,
-		currentHash:   hash,
+		maxConns:    maxConns + 1,                    // plus one to account for master client
+		listener:    listener,
+		signals:     sigs,
+		currentHash: hash,
 	}, nil
 }
 
@@ -90,6 +80,18 @@ func (s *Server) StartServer() {
 	ctx := context.Background()
 	s.handleSignals()
 	fmt.Printf("server started at %q\n", fmt.Sprintf("%s:%s", s.addr, s.port))
+
+	// regenerate the hash and passphrase every hashTimeOut minutes
+	go func() {
+		for range time.Tick(s.hashTimeOut.Sub(time.Now())) {
+			pass, hash, _ := genPassAndHash()
+
+			fmt.Println("your new pass:", pass)
+			fmt.Println("old hash", s.currentHash)
+			s.currentHash = hash
+			fmt.Println("new hash", s.currentHash)
+		}
+	}()
 
 	for {
 		conn, err := s.listener.Accept()
@@ -103,7 +105,7 @@ func (s *Server) StartServer() {
 			continue
 		}
 
-		// Check if the server can handle more connections
+		// check if the server can handle more connections
 		if len(s.clients) >= s.maxConns {
 			s.rejectClient(ctx, conn, config.ServerFull)
 			continue
@@ -113,7 +115,7 @@ func (s *Server) StartServer() {
 	}
 }
 
-// Refactor for handling new connection
+// refactor for handling new connection
 func (s *Server) handleNewConnection(ctx context.Context, conn net.Conn) {
 	var fromClient bytes.Buffer
 	var incomingClient c.TransportClient
@@ -134,19 +136,19 @@ func (s *Server) handleNewConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	// Authenticate passphrase
+	// authenticate passphrase
 	correctPass = s.authenticateClient(ctx, conn, &incomingClient)
 	if !correctPass {
 		s.kickClient(ctx, conn, config.ClientAuthFailed)
 		return
 	}
 
-	// Add the authenticated client
+	// add the authenticated client
 	clientID := s.addClient(conn, &incomingClient)
 	go s.handleNewClient(conn, clientID)
 }
 
-// Send a header to the client
+// send a header to the client
 func (s *Server) sendHeader(ctx context.Context, conn net.Conn) bool {
 	clientHeader := fmt.Sprintf("%s%d", header, time.Now().Unix())
 
@@ -162,7 +164,7 @@ func (s *Server) sendHeader(ctx context.Context, conn net.Conn) bool {
 	return false
 }
 
-// Read and decode client data
+// read and decode client data
 func (s *Server) readClientData(conn net.Conn, fromClient *bytes.Buffer, incomingClient *c.TransportClient) error {
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
@@ -185,7 +187,7 @@ func (s *Server) readClientData(conn net.Conn, fromClient *bytes.Buffer, incomin
 	return nil
 }
 
-// Authenticate client passphrase
+// authenticate client passphrase
 func (s *Server) authenticateClient(ctx context.Context, conn net.Conn, incomingClient *c.TransportClient) bool {
 	for i := 0; i < passphraseAttempts; i++ {
 		if utils.CheckPassphrase(s.currentHash, incomingClient.PassUsed) {
@@ -204,7 +206,7 @@ func (s *Server) authenticateClient(ctx context.Context, conn net.Conn, incoming
 	return false
 }
 
-// Read new passphrase from the client
+// read new passphrase from the client
 func (s *Server) readNewPassphrase(conn net.Conn, incomingClient *c.TransportClient) {
 	buf := make([]byte, 1024)
 	n, err := conn.Read(buf)
@@ -215,7 +217,6 @@ func (s *Server) readNewPassphrase(conn net.Conn, incomingClient *c.TransportCli
 	incomingClient.PassUsed = string(buf[:n])
 }
 
-// Kick client for incorrect passphrase
 func (s *Server) kickClient(ctx context.Context, conn net.Conn, errMsg string) {
 	for j := 0; j < retryAttempts; j++ {
 		if err := sendMessage(ctx, conn, config.PreErr, errMsg); err != nil {
@@ -228,7 +229,7 @@ func (s *Server) kickClient(ctx context.Context, conn net.Conn, errMsg string) {
 	log.Println("client kicked")
 }
 
-// Add authenticated client to the server's list
+// add authenticated client to the server's list
 func (s *Server) addClient(conn net.Conn, incomingClient *c.TransportClient) string {
 	newClient := c.Client{
 		TransportClient: *incomingClient,
@@ -243,7 +244,7 @@ func (s *Server) addClient(conn net.Conn, incomingClient *c.TransportClient) str
 	return clientID
 }
 
-// Reject client if server is full
+// reject client if server is full
 func (s *Server) rejectClient(ctx context.Context, conn net.Conn, errMsg string) {
 	utils.SendMessage(ctx, conn, config.PreErr, errMsg, config.ErrServerCtxTimeout)
 	conn.Close()
@@ -267,8 +268,8 @@ func (s *Server) ShutdownServer() {
 					config.ErrServerCtxTimeout,
 				)
 				if err != nil {
-					log.Println("Error sending auth failure message:", err)
-					log.Println("Retrying to notify client", j+1)
+					log.Println("error sending auth failure message:", err)
+					log.Println("retrying to notify client", j+1)
 					continue
 				}
 				// successfully notified client

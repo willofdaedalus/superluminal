@@ -139,6 +139,21 @@ func (s *Server) handleSignals() {
 	}()
 }
 
+// generate a new passphrase, hash it and return the duo
+func genPassAndHash() (string, string, error) {
+	pass, err := utils.GeneratePassphrase()
+	if err != nil {
+		return "", "", err
+	}
+
+	hash, err := utils.HashPassphrase(pass)
+	if err != nil {
+		return "", "", err
+	}
+
+	return pass, hash, nil
+}
+
 func sendMessage(ctx context.Context, conn net.Conn, msgHeader string, message string) error {
 	errChan := make(chan error, 1)
 	go func() {

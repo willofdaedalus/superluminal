@@ -74,7 +74,6 @@ func getIpAddr() (string, error) {
 }
 
 func (s *Server) handleNewClient(conn net.Conn, id string) {
-	fmt.Printf("someone connected on %s\n", conn.RemoteAddr().String())
 	err := utils.SendMessage(
 		context.TODO(),
 		conn,
@@ -123,6 +122,10 @@ func getServerDetails(listener net.Listener) (string, string, error) {
 func (s *Server) handleSignals() {
 	s.signal = make(chan os.Signal, 1)
 	signal.Notify(s.signal, s.signals...)
+	defer func() {
+		signal.Stop(s.signal)
+		close(s.signal)
+	}()
 
 	go func() {
 		for {

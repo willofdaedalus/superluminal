@@ -23,7 +23,7 @@ var (
 
 func init() {
 	flag.StringVar(&config.DefaultConnection, "c", "", "the host and port to connect to")
-	flag.BoolVar(&startServer, "start", false, "start a superluminal session server")
+	flag.BoolVar(&startServer, "s", false, "start a superluminal session server")
 	flag.Parse()
 }
 
@@ -89,6 +89,6 @@ func main() {
 		}
 		fmt.Println("exiting client")
 	} else {
-		fmt.Println("You must either provide '-start' to run the server or '-c' to connect to one.")
+		fmt.Println("You must either provide '-s' to start the server or '-c' to connect to one.")
 	}
 }

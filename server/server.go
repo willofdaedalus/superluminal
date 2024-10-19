@@ -6,7 +6,6 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"io"
 	"log"
 	"net"
@@ -15,7 +14,10 @@ import (
 	"time"
 	c "willofdaedalus/superluminal/client"
 	"willofdaedalus/superluminal/config"
+	"willofdaedalus/superluminal/term"
 	"willofdaedalus/superluminal/utils"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -26,25 +28,25 @@ const (
 
 type Server struct {
 	buffer        bytes.Buffer
+	tty           *os.File
 	clients       map[string]*c.Client
 	owner         string
-	numConns      int
 	maxConns      int
 	port          string
 	addr          string
 	currentHash   string
-	hashTimeOut   time.Time
+	hashTimeout   time.Time
 	serverStarted time.Time
 	listener      net.Listener
 	signal        chan os.Signal
 	signals       []os.Signal
-	shutdownSent  bool
+	passRotated   bool
 }
 
 func CreateServer(name string, maxConns int) (*Server, error) {
 	listener, err := net.Listen("tcp", "localhost:42024")
 	if err != nil {
-		return nil, fmt.Errorf("couldn't start server for superluminal")
+		return nil, fmt.Errorf("couldn't start server for superluminal; port is occupied")
 	}
 
 	initialClientID := make(map[string]*c.Client)
@@ -60,19 +62,25 @@ func CreateServer(name string, maxConns int) (*Server, error) {
 
 	pass, hash, _ := genPassAndHash()
 	fmt.Println("your pass is:", pass)
+	// create the session
+	tty, err := term.CreatePtySession()
+	if err != nil {
+		return nil, err
+	}
 
 	initialClientID[masterID.String()] = masterClient
 	return &Server{
+		tty:           tty,
 		clients:       initialClientID,
 		owner:         masterID.String(),
 		addr:          addr,
 		port:          port,
-		serverStarted: time.Now(), // timestampo for start of server
-		hashTimeOut:   time.Now().Add(time.Minute * 5), // hash times out after 5mins
-		maxConns:    maxConns + 1,                    // plus one to account for master client
-		listener:    listener,
-		signals:     sigs,
-		currentHash: hash,
+		serverStarted: time.Now(),                      // timestampo for start of server
+		hashTimeout:   time.Now().Add(time.Minute * 5), // hash times out after 5mins
+		maxConns:      maxConns + 1,                    // plus one to account for master client
+		listener:      listener,
+		signals:       sigs,
+		currentHash:   hash,
 	}, nil
 }
 
@@ -81,11 +89,15 @@ func (s *Server) StartServer() {
 	s.handleSignals()
 	fmt.Printf("server started at %q\n", fmt.Sprintf("%s:%s", s.addr, s.port))
 
-	// regenerate the hash and passphrase every hashTimeOut minutes
+	// regenerate the hash and passphrase every hashTimeout minutes
 	go func() {
-		for range time.Tick(s.hashTimeOut.Sub(time.Now())) {
+		for range time.Tick(s.hashTimeout.Sub(time.Now())) {
 			pass, hash, _ := genPassAndHash()
+			if !s.passRotated {
+				s.passRotated = true
+			}
 
+			// obviously remove this
 			fmt.Println("your new pass:", pass)
 			fmt.Println("old hash", s.currentHash)
 			s.currentHash = hash
@@ -93,7 +105,19 @@ func (s *Server) StartServer() {
 		}
 	}()
 
+	output := make(chan string)
+	go s.forwardInputToTTY()
+	go s.readTTY(output)
+
+	go func() {
+		for data := range output {
+			fmt.Print(data)
+		}
+	} ()
+
+
 	for {
+		proceed := make(chan bool)
 		conn, err := s.listener.Accept()
 		if err != nil {
 			if opErr, ok := err.(*net.OpError); ok && !opErr.Temporary() {
@@ -107,16 +131,51 @@ func (s *Server) StartServer() {
 
 		// check if the server can handle more connections
 		if len(s.clients) >= s.maxConns {
-			s.rejectClient(ctx, conn, config.ServerFull)
+			s.kickClient(ctx, conn, config.ServerFull)
 			continue
 		}
 
-		go s.handleNewConnection(ctx, conn)
+		go s.handleNewConnection(ctx, conn, proceed)
+
+		if !<-proceed {
+			continue
+		}
+	}
+}
+
+func (s *Server) forwardInputToTTY() {
+	buf := make([]byte, 1024)
+	for {
+		n, err := os.Stdin.Read(buf)
+		if err != nil {
+			log.Println("couldn't read from stdin")
+			continue
+		}
+
+
+		_, err = s.tty.Write(buf[:n])
+		if err != nil {
+			log.Println("error reading to the tty", err)
+			return
+		}
+	}
+}
+
+func (s *Server) readTTY(output chan<- string) {
+	defer close(output)
+	buf := make([]byte, 1024)
+	for {
+		n, err := s.tty.Read(buf)
+		if err != nil {
+			log.Print("couldn't read from the tty:", err)
+			break
+		}
+		output <- string(buf[:n])
 	}
 }
 
 // refactor for handling new connection
-func (s *Server) handleNewConnection(ctx context.Context, conn net.Conn) {
+func (s *Server) handleNewConnection(ctx context.Context, conn net.Conn, proceed chan<- bool) {
 	var fromClient bytes.Buffer
 	var incomingClient c.TransportClient
 	var correctPass, headerSent bool
@@ -127,12 +186,14 @@ func (s *Server) handleNewConnection(ctx context.Context, conn net.Conn) {
 	headerSent = s.sendHeader(handshakeCtx, conn)
 	if !headerSent {
 		conn.Close()
+		proceed <- false
 		return
 	}
 
 	// read client data
 	if err := s.readClientData(conn, &fromClient, &incomingClient); err != nil {
 		conn.Close()
+		proceed <- false
 		return
 	}
 
@@ -140,12 +201,14 @@ func (s *Server) handleNewConnection(ctx context.Context, conn net.Conn) {
 	correctPass = s.authenticateClient(ctx, conn, &incomingClient)
 	if !correctPass {
 		s.kickClient(ctx, conn, config.ClientAuthFailed)
+		proceed <- false
 		return
 	}
 
 	// add the authenticated client
 	clientID := s.addClient(conn, &incomingClient)
 	go s.handleNewClient(conn, clientID)
+	proceed <- true
 }
 
 // send a header to the client
@@ -196,7 +259,11 @@ func (s *Server) authenticateClient(ctx context.Context, conn net.Conn, incoming
 
 		// if passphrase incorrect, notify and allow retry
 		if i < passphraseAttempts-1 {
-			if err := sendMessage(ctx, conn, config.PreErr, config.RejectedPass); err != nil {
+			msg := config.RejectedPass
+			if s.passRotated {
+				msg = fmt.Sprintf("%s - passphrase has rotated. contact session owner", config.RejectedPass)
+			}
+			if err := sendMessage(ctx, conn, config.PreErr, msg); err != nil {
 				log.Println("error sending rejected pass message:", err)
 			}
 			s.readNewPassphrase(conn, incomingClient)
@@ -244,13 +311,6 @@ func (s *Server) addClient(conn net.Conn, incomingClient *c.TransportClient) str
 	return clientID
 }
 
-// reject client if server is full
-func (s *Server) rejectClient(ctx context.Context, conn net.Conn, errMsg string) {
-	utils.SendMessage(ctx, conn, config.PreErr, errMsg, config.ErrServerCtxTimeout)
-	conn.Close()
-	log.Println("client rejected: server full")
-}
-
 // fix the code below
 func (s *Server) ShutdownServer() {
 	ctx, cancel := context.WithTimeout(context.Background(), config.MaxConnectionTime)
@@ -284,5 +344,6 @@ func (s *Server) ShutdownServer() {
 		}
 	}
 
+	fmt.Println("shutdown all clients")
 	s.listener.Close()
 }

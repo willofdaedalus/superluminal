@@ -97,8 +97,11 @@ func parseServerErrMessage(msg string) error {
 	switch msg {
 	case config.ServerFull:
 		return config.ErrServerFull
-	case config.RejectedPass:
-		fmt.Println("sprlmnl:", config.RejectedPass)
+	case
+		config.RejectedPass,
+		fmt.Sprintf("%s - passphrase has rotated. contact session owner", config.RejectedPass):
+
+		fmt.Println("sprlmnl:", msg)
 		return nil // no error, just retry
 	case config.ClientAuthFailed:
 		return config.ErrWrongServerPass

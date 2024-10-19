@@ -7,13 +7,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// NormalizePassphrase ensures consistent handling of passphrases
-func NormalizePassphrase(passphrase string) string {
+// normalizePassphrase ensures consistent handling of passphrases
+func normalizePassphrase(passphrase string) string {
 	return strings.TrimSpace(passphrase)
 }
 
 func CheckPassphrase(hash, passphrase string) bool {
-	normalizedPassphrase := NormalizePassphrase(passphrase)
+	normalizedPassphrase := normalizePassphrase(passphrase)
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(normalizedPassphrase)) == nil
 }
 
@@ -22,11 +22,11 @@ func GeneratePassphrase() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return NormalizePassphrase(strings.Join(list, " ")), nil
+	return normalizePassphrase(strings.Join(list, " ")), nil
 }
 
 func HashPassphrase(passphrase string) (string, error) {
-	normalizedPassphrase := NormalizePassphrase(passphrase)
+	normalizedPassphrase := normalizePassphrase(passphrase)
 	hash, err := bcrypt.GenerateFromPassword([]byte(normalizedPassphrase), bcrypt.DefaultCost)
 	if err != nil {
 		return "", err

@@ -1,17 +1,15 @@
 package main
 
 import (
-	"fmt"
 	"log"
-	"willofdaedalus/superluminal/pty"
+	"willofdaedalus/superluminal/server"
 )
 
 func main() {
-	t, err := pty.NewTether()
+	s, err := server.CreateServer()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	t.WriteTo([]byte("ls\n"))
-	fmt.Print(string(t.ReadFrom()))
+	s.StartServer()
 }

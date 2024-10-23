@@ -23,6 +23,7 @@ func NewTether() (*Tether, error) {
 }
 
 // writes whatever is passed to the PTY
+// used to pass commands to the PTY
 func (t *Tether) WriteTo(stuff []byte) {
 	if len(stuff) == 0 {
 		return

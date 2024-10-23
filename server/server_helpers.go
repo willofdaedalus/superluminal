@@ -4,39 +4,32 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
-	"os/signal"
+	"time"
 	"willofdaedalus/superluminal/utils"
 )
 
 func sendMessage(ctx context.Context, conn net.Conn, header, msg string) error {
 	finalMessage := []byte(fmt.Sprintf("%s%s", header, msg))
 
-	errChan := make(chan error)
-	defer close(errChan)
-	go func() {
-		_, err := conn.Write(finalMessage)
-		errChan <- err
-	}()
-
 	select {
-	case err := <-errChan:
-		return err
 	case <-ctx.Done():
 		return utils.ErrCtxTimeOut
-	}
-}
+	default:
+		deadline, ok := ctx.Deadline()
+		if ok {
+			// set a write deadline that is in sync with the ctx's
+			if err := conn.SetWriteDeadline(deadline); err != nil {
+				return fmt.Errorf("failed to write deadline", err)
+			}
+			defer conn.SetWriteDeadline(time.Time{})
+		}
 
-func (s *Server) handleSignals(outSig chan<- bool) {
-	s.sigChan = make(chan os.Signal)
-
-	defer func() {
-		signal.Stop(s.sigChan)
-		close(s.sigChan)
-	}()
-
-	for range s.sigChan {
-		outSig <- true
-		return
+		errChan := make(chan error)
+		defer close(errChan)
+		go func() {
+			_, err := conn.Write(finalMessage)
+			errChan <- err
+		}()
+		return <-errChan
 	}
 }

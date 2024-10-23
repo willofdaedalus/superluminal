@@ -54,7 +54,7 @@ func CreateServer() (*Server, error) {
 	}, nil
 }
 
-func (s *Server) StartServer() {
+func (s *Server) Start() {
 	// cancel to propagate shutdown signal to all child contexts
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -83,6 +83,7 @@ func (s *Server) StartServer() {
 				case err := <-errChan:
 					if err != nil {
 						log.Println("client err: ", err)
+						s.sigChan <- syscall.SIGINT
 					}
 				case <-ctx.Done():
 				}
@@ -119,26 +120,35 @@ func handleNewClient(ctx context.Context, conn net.Conn, errChan chan<- error) {
 }
 
 func sendServerAuth(ctx context.Context, conn net.Conn) error {
-	sentAuth := false
 	for tries := 0; tries < maxConnTries; tries++ {
-		if err := sendMessage(ctx, conn, utils.HdrInfo, "superluminal_server"); err != nil {
-			// in the event the context timed out before client got server auth
-			// return that custom error we returned from sendMessage
-			if errors.Is(err, utils.ErrCtxTimeOut) {
-				return err
+		select {
+		case <-ctx.Done():
+			return utils.ErrCtxTimeOut
+		default:
+			if err := sendMessage(ctx, conn, utils.HdrInfo, "superluminal_server"); err != nil {
+				// in the event the context timed out before client got server auth
+				// return that custom error we returned from sendMessage
+				if errors.Is(err, utils.ErrCtxTimeOut) {
+					return err
+				}
+
+				if tries == maxConnTries-1 {
+					return utils.ErrClientExchFailed
+				}
+
+				// check on the context while counting down to retry the connection
+				select {
+				case <-ctx.Done():
+					return utils.ErrCtxTimeOut
+				case <-time.After(time.Millisecond * 500):
+					log.Println("failed to send message. retrying...")
+					continue
+				}
 			}
-
-			log.Println("failed to send message. retrying...")
-			time.Sleep(time.Millisecond * 500)
-			continue
+			log.Println("sent server authentication to client; waiting for client details")
+			return nil
 		}
-		log.Println("sent server authentication to client; waiting for client details")
-		sentAuth = true
 	}
 
-	if !sentAuth {
-		return utils.ErrFailedServerAuth
-	}
-
-	return nil
+	return utils.ErrFailedServerAuth
 }

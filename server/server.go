@@ -1,7 +1,10 @@
+// NOTE; https://stackoverflow.com/a/49580791
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
 	"errors"
 	"log"
 	"net"
@@ -10,14 +13,14 @@ import (
 	"syscall"
 	"time"
 	"willofdaedalus/superluminal/client"
-	"willofdaedalus/superluminal/utils"
+	u "willofdaedalus/superluminal/utils"
 
 	"github.com/google/uuid"
 )
 
 const (
-	maxConnTries = 3
-	maxClients   = 32
+	maxTries   = 3
+	maxClients = 32
 )
 
 type Server struct {
@@ -105,6 +108,8 @@ func (s *Server) ShutdownServer() {
 }
 
 func handleNewClient(ctx context.Context, conn net.Conn, errChan chan<- error) {
+	var client client.Client
+	var clientData bytes.Buffer
 	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 
@@ -114,35 +119,52 @@ func handleNewClient(ctx context.Context, conn net.Conn, errChan chan<- error) {
 		return
 	}
 
+	data, err := u.TryRead(ctx, conn, maxTries)
+	if err != nil {
+		errChan <- err
+		return
+	}
+
+	// TODO; strip and parse the header; check for a res header otherwise return an error
+
+	clientData.Write(data)
+	dec := gob.NewDecoder(&clientData)
+	if err := dec.Decode(&client); err != nil {
+		errChan <- err
+		return
+	}
+
+	log.Printf("%s", client.Name)
+
 	select {
 	case <-ctx.Done():
-		errChan <- utils.ErrCtxTimeOut
+		errChan <- u.ErrCtxTimeOut
 		return
 	}
 }
 
 func sendServerAuth(ctx context.Context, conn net.Conn) error {
-	for tries := 0; tries < maxConnTries; tries++ {
+	for tries := 0; tries < maxTries; tries++ {
 		select {
 		case <-ctx.Done():
-			return utils.ErrCtxTimeOut
+			return u.ErrCtxTimeOut
 		default:
-			if err := utils.TryWrite(ctx, conn, maxConnTries, []byte(utils.HdrAck), []byte(utils.AckSelfReport)); err != nil {
+			if err := u.TryWrite(ctx, conn, maxTries, []byte(u.HdrAck), []byte(u.AckSelfReport)); err != nil {
 				// in the event the context timed out before client got server auth
 				// return that custom error we returned from sendMessage
-				if errors.Is(err, utils.ErrCtxTimeOut) {
+				if errors.Is(err, u.ErrCtxTimeOut) {
 					return err
 				}
 
-				if tries == maxConnTries-1 {
-					return utils.ErrClientExchFailed
+				if tries == maxTries-1 {
+					return u.ErrClientExchFailed
 				}
 
 				retryTime := time.Millisecond * 500 * (1 << uint(tries))
 				// check on the context while counting down to retry the connection
 				select {
 				case <-ctx.Done():
-					return utils.ErrCtxTimeOut
+					return u.ErrCtxTimeOut
 				case <-time.After(retryTime):
 					log.Println("failed to send message. retrying...")
 					continue
@@ -153,5 +175,5 @@ func sendServerAuth(ctx context.Context, conn net.Conn) error {
 		}
 	}
 
-	return utils.ErrFailedServerAuth
+	return u.ErrFailedServerAuth
 }

@@ -13,8 +13,9 @@ const (
 )
 
 type Client struct {
-	Name     string
-	PassUsed string
+	Name       string
+	PassUsed   string
+	serverConn net.Conn
 }
 
 func CreateClient(name string) *Client {
@@ -34,10 +35,11 @@ func (c *Client) ConnectToServer(host, port string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	c.serverConn = conn
+	defer c.serverConn.Close()
 
 	for {
-		buf, err = utils.TryRead(ctx, conn, maxConnTries)
+		buf, err = utils.TryRead(ctx, c.serverConn, maxConnTries)
 		if err != nil {
 			// we assume we couldn't read from the server then
 			cancel()
@@ -56,6 +58,6 @@ func (c *Client) ConnectToServer(host, port string) error {
 			}
 		}
 
-		c.doActionWithHeader(hdrType, message)
+		c.doActionWithHeader(ctx, hdrType, message)
 	}
 }

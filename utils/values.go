@@ -6,6 +6,7 @@ const (
 	HdrInfo = "sprlmnl+inf:"
 	HdrErr  = "sprlmnl+err:"
 	HdrAck  = "sprlmnl+ack:"
+	HdrRes  = "sprlmnl+res:"
 )
 
 // ack messages

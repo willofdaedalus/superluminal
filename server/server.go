@@ -17,6 +17,7 @@ import (
 
 const (
 	maxConnTries = 3
+	maxClients   = 32
 )
 
 type Server struct {
@@ -32,7 +33,7 @@ type Server struct {
 }
 
 func CreateServer() (*Server, error) {
-	clients := make(map[string]*client.Client)
+	clients := make(map[string]*client.Client, maxClients)
 	signals := []os.Signal{syscall.SIGINT, syscall.SIGKILL}
 
 	// listen on tcp port 42024 on all available p addresses of the local system.
@@ -83,6 +84,7 @@ func (s *Server) Start() {
 				case err := <-errChan:
 					if err != nil {
 						log.Println("client err: ", err)
+						// TODO; THIS IS JUST FOR DEBUG PURPOSES; REMOVE WHEN DONE!
 						s.sigChan <- syscall.SIGINT
 					}
 				case <-ctx.Done():
@@ -125,7 +127,7 @@ func sendServerAuth(ctx context.Context, conn net.Conn) error {
 		case <-ctx.Done():
 			return utils.ErrCtxTimeOut
 		default:
-			if err := sendMessage(ctx, conn, utils.HdrInfo, "superluminal_server"); err != nil {
+			if err := utils.TryWrite(ctx, conn, maxConnTries, []byte(utils.HdrAck), []byte(utils.AckSelfReport)); err != nil {
 				// in the event the context timed out before client got server auth
 				// return that custom error we returned from sendMessage
 				if errors.Is(err, utils.ErrCtxTimeOut) {
@@ -136,11 +138,12 @@ func sendServerAuth(ctx context.Context, conn net.Conn) error {
 					return utils.ErrClientExchFailed
 				}
 
+				retryTime := time.Millisecond * 500 * (1 << uint(tries))
 				// check on the context while counting down to retry the connection
 				select {
 				case <-ctx.Done():
 					return utils.ErrCtxTimeOut
-				case <-time.After(time.Millisecond * 500):
+				case <-time.After(retryTime):
 					log.Println("failed to send message. retrying...")
 					continue
 				}

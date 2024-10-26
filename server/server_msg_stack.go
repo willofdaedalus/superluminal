@@ -26,6 +26,10 @@ func (s *stack) pop() int {
 	defer s.mu.Unlock()
 
 	l := len(s.vals)
+	if l == 0 {
+		return -1
+	}
+
 	top := s.vals[l-1]
 	s.vals = s.vals[:l-1]
 	return top

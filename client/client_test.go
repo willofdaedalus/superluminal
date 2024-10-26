@@ -8,11 +8,11 @@ import (
 )
 
 func TestParseHeader(t *testing.T) {
-	testHeader := fmt.Sprintf("%shello world", utils.HdrInfo)
+	testHeader := fmt.Sprintf("%shello world", utils.HdrInfoMsg)
 	header, _, _ := bytes.Cut([]byte(testHeader), []byte(":"))
 	t.Log(testHeader)
 
-	_, err := parseServerHeader([]byte(header))
+	_, err := utils.ParseHeader([]byte(header))
 	if err != nil {
 		t.Fatal(err)
 	}

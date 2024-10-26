@@ -14,6 +14,7 @@ const (
 	HdrInfoVal
 	HdrAckVal
 	HdrErrVal
+	HdrResVal
 )
 
 // ack messages

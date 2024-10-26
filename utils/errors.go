@@ -8,6 +8,7 @@ var (
 	ErrFailedServerAuth = errors.New("sprlmnl: couldn't send server auth to client")
 	ErrClientExchFailed = errors.New("sprlmnl: couldn't reach client after retries")
 	ErrWrongServer      = errors.New("sprlmnl: connected to non-superluminal server; exiting")
+	ErrDecodeFailed     = errors.New("sprlmnl: couldn't decode data")
 )
 
 var (

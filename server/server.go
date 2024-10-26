@@ -1,4 +1,7 @@
 // NOTE; https://stackoverflow.com/a/49580791
+// TODO; add a queueing system that keeps track of headers sent and their appropriate responses
+// to remove manual check all the time
+
 package server
 
 import (
@@ -66,7 +69,10 @@ func CreateServer() (*Server, error) {
 func (s *Server) Start() {
 	// cancel to propagate shutdown signal to all child contexts
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	defer func() {
+		cancel()
+		s.ShutdownServer()
+	}()
 
 	s.sigChan = make(chan os.Signal, 1)
 	signal.Notify(s.sigChan, s.signals...)
@@ -103,7 +109,6 @@ func (s *Server) Start() {
 	}()
 	<-s.sigChan
 	cancel()
-	s.ShutdownServer()
 }
 
 func (s *Server) ShutdownServer() {
@@ -118,29 +123,34 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, errChan cha
 	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 
+	go func() {
+		select {
+		case <-ctx.Done():
+			errChan <- u.ErrCtxTimeOut
+			return
+		}
+	}()
+
 	// send the server identification message to the client
 	if err := s.sendServerAuth(ctx, conn); err != nil {
 		errChan <- err
 		return
 	}
 
+	// read the information from the client
 	data, err := u.TryRead(ctx, conn, maxTries)
 	if err != nil {
 		errChan <- err
 		return
 	}
 
-	msg, err := s.parseResponse(data)
+	_, msg, err := u.ParseIncomingMsg(data)
 	if err != nil {
 		errChan <- err
 		return
 	}
 
-	// TODO; strip and parse the header; check for a res header otherwise return an error
-	// TODO; add a queueing system that keeps track of headers sent and their appropriate responses
-	// to remove manual check all the time
-
-	clientData.Write(data[12:])
+	clientData.Write(msg)
 	dec := gob.NewDecoder(&clientData)
 	if err := dec.Decode(&client); err != nil {
 		errChan <- fmt.Errorf("couldn't decode values")
@@ -149,12 +159,6 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, errChan cha
 
 	log.Printf("%s", client.Name)
 	// return
-
-	select {
-	case <-ctx.Done():
-		errChan <- u.ErrCtxTimeOut
-		return
-	}
 }
 
 func (s *Server) sendServerAuth(ctx context.Context, conn net.Conn) error {
@@ -193,8 +197,4 @@ func (s *Server) sendServerAuth(ctx context.Context, conn net.Conn) error {
 	s.msgStack.push(u.HdrAckVal)
 
 	return u.ErrFailedServerAuth
-}
-
-func (s *Server) parseResponse(data []byte) ([]byte, error) {
-
 }

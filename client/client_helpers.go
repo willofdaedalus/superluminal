@@ -9,47 +9,6 @@ import (
 	u "willofdaedalus/superluminal/utils"
 )
 
-// parse the server's header for more info and what to do
-func parseHeader(header []byte) (int, error) {
-	if len(header) != 11 {
-		return u.HdrUnknownVal, u.ErrInvalidHeader
-	}
-
-	split := bytes.Split(header, []byte("+"))
-	if !bytes.Contains(split[0], []byte("sprlmnl")) || len(split[1]) != 3 {
-		return u.HdrUnknownVal, u.ErrInvalidHeader
-	}
-
-	headerType := u.GetHeaderType(split[1])
-	if headerType == u.HdrUnknownVal {
-		return u.HdrUnknownVal, u.ErrUnknownHeader
-	}
-
-	return headerType, nil
-}
-
-func (c *Client) parseIncomingMsg(msg []byte) (int, []byte, error) {
-	header, message, ok := bytes.Cut(msg, []byte(":"))
-	if !ok {
-		return u.HdrUnknownVal, nil, u.ErrInvalidHeader
-	}
-
-	headerType, err := parseHeader(header)
-	if err != nil {
-		return headerType, nil, err
-	}
-
-	// switch headerType {
-	// case ack:
-	// 	return c.parseAckMessage(message)
-	// case info:
-	// 	log.Printf("%s", message)
-	// 	return nil
-	// }
-
-	return headerType, message, nil
-}
-
 func (c *Client) doActionWithHeader(ctx context.Context, headerType int, msg []byte) error {
 	switch headerType {
 	case u.HdrInfoVal:

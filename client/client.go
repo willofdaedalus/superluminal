@@ -46,7 +46,7 @@ func (c *Client) ConnectToServer(host, port string) error {
 			return err
 		}
 
-		hdrType, message, err := c.parseIncomingMsg(buf)
+		hdrType, message, err := utils.ParseIncomingMsg(buf)
 		if err != nil {
 			// we connected to the wrong server
 			if errors.Is(err, utils.ErrWrongServer) {

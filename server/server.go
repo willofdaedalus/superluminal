@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/gob"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -24,20 +25,23 @@ const (
 )
 
 type Server struct {
-	listener     net.Listener
-	masterID     string
-	clients      map[string]*client.Client
-	ip, port     string
+	listener net.Listener
+	masterID string
+	clients  map[string]*client.Client
+	ip, port string
+
+	msgStack     *stack
 	timeStarted  time.Time
 	outgoingChan chan []byte
-
-	sigChan chan os.Signal
-	signals []os.Signal
+	sigChan      chan os.Signal
+	signals      []os.Signal
 }
 
 func CreateServer() (*Server, error) {
 	clients := make(map[string]*client.Client, maxClients)
 	signals := []os.Signal{syscall.SIGINT, syscall.SIGKILL}
+
+	st := newStack()
 
 	// listen on tcp port 42024 on all available p addresses of the local system.
 	// godocs recommeds not assigning a host https://pkg.go.dev/net#Listen
@@ -55,6 +59,7 @@ func CreateServer() (*Server, error) {
 		listener: listener,
 		clients:  clients,
 		signals:  signals,
+		msgStack: st,
 	}, nil
 }
 
@@ -81,7 +86,7 @@ func (s *Server) Start() {
 
 			go func(conn net.Conn) {
 				errChan := make(chan error)
-				go handleNewClient(ctx, conn, errChan)
+				go s.handleNewClient(ctx, conn, errChan)
 
 				select {
 				case err := <-errChan:
@@ -107,14 +112,14 @@ func (s *Server) ShutdownServer() {
 	s.listener.Close()
 }
 
-func handleNewClient(ctx context.Context, conn net.Conn, errChan chan<- error) {
+func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, errChan chan<- error) {
 	var client client.Client
 	var clientData bytes.Buffer
 	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 
 	// send the server identification message to the client
-	if err := sendServerAuth(ctx, conn); err != nil {
+	if err := s.sendServerAuth(ctx, conn); err != nil {
 		errChan <- err
 		return
 	}
@@ -125,16 +130,25 @@ func handleNewClient(ctx context.Context, conn net.Conn, errChan chan<- error) {
 		return
 	}
 
-	// TODO; strip and parse the header; check for a res header otherwise return an error
-
-	clientData.Write(data)
-	dec := gob.NewDecoder(&clientData)
-	if err := dec.Decode(&client); err != nil {
+	msg, err := s.parseResponse(data)
+	if err != nil {
 		errChan <- err
 		return
 	}
 
+	// TODO; strip and parse the header; check for a res header otherwise return an error
+	// TODO; add a queueing system that keeps track of headers sent and their appropriate responses
+	// to remove manual check all the time
+
+	clientData.Write(data[12:])
+	dec := gob.NewDecoder(&clientData)
+	if err := dec.Decode(&client); err != nil {
+		errChan <- fmt.Errorf("couldn't decode values")
+		return
+	}
+
 	log.Printf("%s", client.Name)
+	// return
 
 	select {
 	case <-ctx.Done():
@@ -143,13 +157,13 @@ func handleNewClient(ctx context.Context, conn net.Conn, errChan chan<- error) {
 	}
 }
 
-func sendServerAuth(ctx context.Context, conn net.Conn) error {
+func (s *Server) sendServerAuth(ctx context.Context, conn net.Conn) error {
 	for tries := 0; tries < maxTries; tries++ {
 		select {
 		case <-ctx.Done():
 			return u.ErrCtxTimeOut
 		default:
-			if err := u.TryWrite(ctx, conn, maxTries, []byte(u.HdrAck), []byte(u.AckSelfReport)); err != nil {
+			if err := u.TryWrite(ctx, conn, maxTries, []byte(u.HdrAckMsg), []byte(u.AckSelfReport)); err != nil {
 				// in the event the context timed out before client got server auth
 				// return that custom error we returned from sendMessage
 				if errors.Is(err, u.ErrCtxTimeOut) {
@@ -175,5 +189,12 @@ func sendServerAuth(ctx context.Context, conn net.Conn) error {
 		}
 	}
 
+	// put the recent hdr on list for cross checking when a response is received
+	s.msgStack.push(u.HdrAckVal)
+
 	return u.ErrFailedServerAuth
+}
+
+func (s *Server) parseResponse(data []byte) ([]byte, error) {
+
 }

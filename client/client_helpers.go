@@ -6,47 +6,35 @@ import (
 	"encoding/gob"
 	"fmt"
 	"time"
-	"willofdaedalus/superluminal/utils"
-)
-
-// header types
-const (
-	HdrUnkown = iota + 1
-	HdrInfo
-	HdrAck
-	HdrErr
+	u "willofdaedalus/superluminal/utils"
 )
 
 // parse the server's header for more info and what to do
-func parseServerHeader(header []byte) (int, error) {
+func parseHeader(header []byte) (int, error) {
 	if len(header) != 11 {
-		return HdrUnkown, utils.ErrInvalidHeader
+		return u.HdrUnknownVal, u.ErrInvalidHeader
 	}
 
 	split := bytes.Split(header, []byte("+"))
 	if !bytes.Contains(split[0], []byte("sprlmnl")) || len(split[1]) != 3 {
-		return HdrUnkown, utils.ErrInvalidHeader
+		return u.HdrUnknownVal, u.ErrInvalidHeader
 	}
 
-	switch string(split[1]) {
-	case "inf":
-		return HdrInfo, nil
-	case "err":
-		return HdrErr, nil
-	case "ack":
-		return HdrAck, nil
-	default:
-		return HdrUnkown, utils.ErrUnknownHeader
+	headerType := u.GetHeaderType(split[1])
+	if headerType == u.HdrUnknownVal {
+		return u.HdrUnknownVal, u.ErrUnknownHeader
 	}
+
+	return headerType, nil
 }
 
 func (c *Client) parseIncomingMsg(msg []byte) (int, []byte, error) {
 	header, message, ok := bytes.Cut(msg, []byte(":"))
 	if !ok {
-		return HdrUnkown, nil, utils.ErrInvalidHeader
+		return u.HdrUnknownVal, nil, u.ErrInvalidHeader
 	}
 
-	headerType, err := parseServerHeader(header)
+	headerType, err := parseHeader(header)
 	if err != nil {
 		return headerType, nil, err
 	}
@@ -64,13 +52,13 @@ func (c *Client) parseIncomingMsg(msg []byte) (int, []byte, error) {
 
 func (c *Client) doActionWithHeader(ctx context.Context, headerType int, msg []byte) error {
 	switch headerType {
-	case HdrInfo:
+	case u.HdrInfoVal:
 		fmt.Println("info")
 		fmt.Printf("%s", msg)
-	case HdrErr:
+	case u.HdrErrVal:
 		fmt.Println("err")
 		fmt.Printf("%s", msg)
-	case HdrAck:
+	case u.HdrAckVal:
 		return c.fulfillAckReq(ctx, msg)
 	}
 
@@ -80,7 +68,7 @@ func (c *Client) doActionWithHeader(ctx context.Context, headerType int, msg []b
 
 // handles the various ack messages that come from the server
 func (c *Client) fulfillAckReq(ctx context.Context, msg []byte) error {
-	if bytes.Equal(msg, []byte(utils.AckSelfReport)) {
+	if bytes.Equal(msg, []byte(u.AckSelfReport)) {
 		return c.encodeAndSend(ctx)
 	}
 
@@ -92,6 +80,7 @@ func (c *Client) encodeAndSend(ctx context.Context) error {
 	sendCtx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 
+	c.PassUsed = "password"
 	var client bytes.Buffer
 	enc := gob.NewEncoder(&client)
 	err := enc.Encode(c)
@@ -99,7 +88,7 @@ func (c *Client) encodeAndSend(ctx context.Context) error {
 		return err
 	}
 
-	if err := utils.TryWrite(sendCtx, c.serverConn, maxConnTries, []byte(utils.HdrRes), client.Bytes()); err != nil {
+	if err := u.TryWrite(sendCtx, c.serverConn, maxConnTries, []byte(u.HdrResMsg), client.Bytes()); err != nil {
 		return err
 	}
 

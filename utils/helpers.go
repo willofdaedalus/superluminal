@@ -143,3 +143,17 @@ func TryRead(ctx context.Context, conn net.Conn, maxConnTries int) ([]byte, erro
 		return data, err
 	}
 }
+
+// take some bytes and return their equivalent value index
+func GetHeaderType(header []byte) int {
+	switch string(header) {
+	case "inf":
+		return HdrInfoVal
+	case "ack":
+		return HdrAckVal
+	case "err":
+		return HdrErrVal
+	default:
+		return HdrUnknownVal
+	}
+}

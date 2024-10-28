@@ -22,6 +22,7 @@ func (c *Client) doActionWithHeader(ctx context.Context, headerType int, msg []b
 	}
 
 	// FIXME
+	// why is that FIXME there??
 	return nil
 }
 

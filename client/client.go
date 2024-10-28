@@ -13,14 +13,15 @@ const (
 )
 
 type Client struct {
-	Name       string
-	PassUsed   string
-	serverConn net.Conn
+	Name             string
+	PassUsed         string
+	Conn, serverConn net.Conn
 }
 
-func CreateClient(name string) *Client {
+func CreateClient(name, pass string) *Client {
 	return &Client{
-		Name: name,
+		Name:     name,
+		PassUsed: pass,
 	}
 }
 

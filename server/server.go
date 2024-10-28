@@ -23,28 +23,41 @@ import (
 )
 
 const (
-	maxTries   = 3
-	maxClients = 32
+	debugPassCount  = 1
+	actualPassCount = 6
+)
+
+const (
+	maxTries  = 3
+	passTries = 3
 )
 
 type Server struct {
-	listener net.Listener
-	masterID string
-	clients  map[string]*client.Client
-	ip, port string
+	OwnerName string
+	listener  net.Listener
+	masterID  string
+	clients   map[string]*client.Client
+	ip, port  string
 
-	msgStack     *stack
+	pass         string
+	currentHash  string
+	passRotated  bool
 	timeStarted  time.Time
 	outgoingChan chan []byte
 	sigChan      chan os.Signal
 	signals      []os.Signal
+	hashTimeout  time.Duration
 }
 
-func CreateServer() (*Server, error) {
-	clients := make(map[string]*client.Client, maxClients)
+func CreateServer(owner string, maxConns int) (*Server, error) {
+	clients := make(map[string]*client.Client, maxConns)
 	signals := []os.Signal{syscall.SIGINT, syscall.SIGKILL}
 
-	st := newStack()
+	pass, hash, err := genPassAndHash()
+	if err != nil {
+		return nil, err
+	}
+	log.Println("your pass is", pass)
 
 	// listen on tcp port 42024 on all available p addresses of the local system.
 	// godocs recommeds not assigning a host https://pkg.go.dev/net#Listen
@@ -54,16 +67,35 @@ func CreateServer() (*Server, error) {
 	}
 
 	// TODO;the user gets to input their name here in the future
-	masterClient := client.CreateClient("master")
+	masterClient := client.CreateClient(owner, "")
 	masterID := uuid.NewString()
 	clients[masterID] = masterClient
 
 	return &Server{
-		listener: listener,
-		clients:  clients,
-		signals:  signals,
-		msgStack: st,
+		OwnerName:   masterClient.Name,
+		listener:    listener,
+		clients:     clients,
+		signals:     signals,
+		masterID:    masterID,
+		timeStarted: time.Now(),
+		hashTimeout: time.Minute * 5,
+		currentHash: hash,
 	}, nil
+}
+
+// generate a new passphrase, hash it and return the duo
+func genPassAndHash() (string, string, error) {
+	pass, err := u.GeneratePassphrase(debugPassCount)
+	if err != nil {
+		return "", "", err
+	}
+
+	hash, err := u.HashPassphrase(pass)
+	if err != nil {
+		return "", "", err
+	}
+
+	return pass, hash, nil
 }
 
 func (s *Server) Start() {
@@ -76,6 +108,18 @@ func (s *Server) Start() {
 
 	s.sigChan = make(chan os.Signal, 1)
 	signal.Notify(s.sigChan, s.signals...)
+	// regenerate the hash and passphrase every hashTimeout minutes
+	go func() {
+		for range time.Tick(s.hashTimeout) {
+			s.pass, s.currentHash, _ = genPassAndHash()
+			if !s.passRotated {
+				s.passRotated = true
+			}
+
+			// obviously remove this
+			fmt.Println("your new pass:", s.pass)
+		}
+	}()
 
 	go func() {
 		for {
@@ -90,6 +134,12 @@ func (s *Server) Start() {
 				continue
 			}
 
+			if len(s.clients) >= maxClients {
+				u.TryWrite(ctx, conn, maxTries, []byte(u.HdrErrMsg), []byte("server_full"))
+				conn.Close()
+				continue
+			}
+
 			go func(conn net.Conn) {
 				errChan := make(chan error)
 				go s.handleNewClient(ctx, conn, errChan)
@@ -97,10 +147,10 @@ func (s *Server) Start() {
 				select {
 				case err := <-errChan:
 					if err != nil {
-						log.Println("client err: ", err)
-						// TODO; THIS IS JUST FOR DEBUG PURPOSES; REMOVE WHEN DONE!
+						// log.Println("client err: ", err)
 						s.sigChan <- syscall.SIGINT
 					}
+					return
 				case <-ctx.Done():
 				}
 				conn.Close()
@@ -144,6 +194,7 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, errChan cha
 		return
 	}
 
+	// NOTE; this is a very important func for reacting to headers
 	_, msg, err := u.ParseIncomingMsg(data)
 	if err != nil {
 		errChan <- err
@@ -158,7 +209,22 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, errChan cha
 	}
 
 	log.Printf("%s", client.Name)
-	// return
+	return
+}
+
+// TODO; current ctx runs for about 5s and we can always increment that duration BUT
+// what if the client doesn't enter a pass as fast as possible and the server kicks
+// them for timeout;
+// POSSIBLE SOLUTIONS
+// * once the conn to the server is dead, upon entering a passphrase (any) try reconning
+// to the server and submit the same details for verification; this time around the counter
+// has reset to 0 (THAT COULD BE A MASSIVE EXPLOIT!)
+// * don't run the ctx until user verifies code but that leaves the server's port waiting
+// which means we need a maximum server open window which the ctx solves
+func (s *Server) tryValidatePass(clientPass string) error {
+	for tries := 0; tries < passTries; tries++ {
+	}
+	return nil
 }
 
 func (s *Server) sendServerAuth(ctx context.Context, conn net.Conn) error {
@@ -192,9 +258,6 @@ func (s *Server) sendServerAuth(ctx context.Context, conn net.Conn) error {
 			return nil
 		}
 	}
-
-	// put the recent hdr on list for cross checking when a response is received
-	s.msgStack.push(u.HdrAckVal)
 
 	return u.ErrFailedServerAuth
 }

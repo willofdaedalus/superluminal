@@ -34,4 +34,5 @@ const (
 // res messages
 const (
 	RespSelfReport = iota + 501
+	RespNewPass
 )

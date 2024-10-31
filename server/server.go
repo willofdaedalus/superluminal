@@ -261,7 +261,12 @@ func (s *Server) tryValidatePass(ctx context.Context, conn net.Conn, clientPass 
 				HdrMsg:   u.ErrWrongPassphrase,
 				Message:  []byte("wrong"),
 			})
-		u.TryRead(ctx, conn, maxTries)
+		p, err := u.TryRead(ctx, conn, maxTries)
+		if err != nil {
+			return err
+		}
+
+		clientPass = string(p)
 	}
 	return nil
 }

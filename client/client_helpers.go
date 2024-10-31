@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 	u "willofdaedalus/superluminal/utils"
+
+	"github.com/charmbracelet/huh"
 )
 
 func (c *Client) doActionWithMsg(ctx context.Context, hdrVal, hdrMsg int, msg []byte) error {
@@ -15,8 +17,7 @@ func (c *Client) doActionWithMsg(ctx context.Context, hdrVal, hdrMsg int, msg []
 		fmt.Println("info")
 		fmt.Printf("%s", msg)
 	case u.HdrErrVal:
-		fmt.Println("err")
-		fmt.Printf("%s", msg)
+		c.fulfillErrReq(ctx, hdrMsg)
 	case u.HdrAckVal:
 		return c.fulfillAckReq(ctx, hdrMsg)
 	}
@@ -24,6 +25,42 @@ func (c *Client) doActionWithMsg(ctx context.Context, hdrVal, hdrMsg int, msg []
 	// FIXME
 	// why is that FIXME there??
 	return nil
+}
+
+func (c *Client) fulfillErrReq(ctx context.Context, hdrMsg int) error {
+	switch hdrMsg {
+	case u.ErrWrongPassphrase:
+		return c.sendPassphrase(ctx)
+	default:
+		return fmt.Errorf("sprlmnl: unknown err msg")
+	}
+}
+
+func (c *Client) sendPassphrase(ctx context.Context) error {
+	newPass := ""
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("incorrect passphrase. re-enter;").
+				Prompt("> ").
+				Value(&newPass),
+		).WithTheme(huh.ThemeBase16()),
+	)
+
+	err := form.Run()
+	if err != nil {
+		return err
+	}
+
+	err = u.TryWrite(ctx, &u.WriteStruct{
+		Conn:     c.serverConn,
+		MaxTries: maxConnTries,
+		HdrVal:   u.HdrResVal,
+		HdrMsg:   u.RespNewPass,
+		Message:  []byte(newPass),
+	})
+
+	return err
 }
 
 // handles the various ack messages that come from the server

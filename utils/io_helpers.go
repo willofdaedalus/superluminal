@@ -9,27 +9,44 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"time"
 )
 
-func TryWrite(ctx context.Context, conn net.Conn, maxConnTries int, header, message []byte) error {
+type WriteStruct struct {
+	Conn     net.Conn
+	MaxTries int
+	HdrVal   int
+	HdrMsg   int
+	Message  []byte
+}
+
+func (ws *WriteStruct) headerMsgByte() []byte {
+	hdr := strconv.Itoa(ws.HdrVal)
+	msg := strconv.Itoa(ws.HdrMsg)
+	fin := fmt.Sprintf("%s+%s", hdr, msg)
+
+	return []byte(fin)
+}
+
+func TryWrite(ctx context.Context, ws *WriteStruct) error {
 	writeCtx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 
 	endChan := make(chan error, 1)
-	finalMsg := bytes.Join([][]byte{header, message}, []byte(""))
+	finalMsg := bytes.Join([][]byte{ws.headerMsgByte(), ws.Message}, []byte(":"))
 
 	go func() {
-		for tries := 0; tries < maxConnTries; tries++ {
+		for tries := 0; tries < ws.MaxTries; tries++ {
 			deadline, ok := writeCtx.Deadline()
 			if ok {
-				if err := conn.SetWriteDeadline(deadline); err != nil {
+				if err := ws.Conn.SetWriteDeadline(deadline); err != nil {
 					endChan <- ErrDeadlineUnsuccessful
 					return
 				}
 			}
 
-			_, err := conn.Write(finalMsg)
+			_, err := ws.Conn.Write(finalMsg)
 			if err != nil {
 				if errors.Is(err, os.ErrDeadlineExceeded) {
 					endChan <- ErrCtxTimeOut
@@ -143,3 +160,11 @@ func TryRead(ctx context.Context, conn net.Conn, maxConnTries int) ([]byte, erro
 		return data, err
 	}
 }
+
+// func IntToBytes(buf []byte) []byte {
+
+// }
+
+// func BytesToInt(buf []byte) int {
+
+// }

@@ -47,6 +47,7 @@ type Server struct {
 	sigChan      chan os.Signal
 	signals      []os.Signal
 	hashTimeout  time.Duration
+	maxClients   int
 }
 
 func CreateServer(owner string, maxConns int) (*Server, error) {
@@ -80,6 +81,7 @@ func CreateServer(owner string, maxConns int) (*Server, error) {
 		timeStarted: time.Now(),
 		hashTimeout: time.Minute * 5,
 		currentHash: hash,
+		maxClients:  maxConns + 1, // plus one to account for master client
 	}, nil
 }
 
@@ -100,14 +102,15 @@ func genPassAndHash() (string, string, error) {
 
 func (s *Server) Start() {
 	// cancel to propagate shutdown signal to all child contexts
+	s.sigChan = make(chan os.Signal, 1)
+	signal.Notify(s.sigChan, s.signals...)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {
+		signal.Stop(s.sigChan)
 		cancel()
 		s.ShutdownServer()
 	}()
 
-	s.sigChan = make(chan os.Signal, 1)
-	signal.Notify(s.sigChan, s.signals...)
 	// regenerate the hash and passphrase every hashTimeout minutes
 	go func() {
 		for range time.Tick(s.hashTimeout) {
@@ -130,12 +133,20 @@ func (s *Server) Start() {
 					return
 				}
 
-				log.Println("err:", err)
+				log.Println("err: from client ", err)
 				continue
 			}
 
-			if len(s.clients) >= maxClients {
-				u.TryWrite(ctx, conn, maxTries, []byte(u.HdrErrMsg), []byte("server_full"))
+			if len(s.clients) >= s.maxClients {
+				u.TryWrite(ctx,
+					&u.WriteStruct{
+						Conn:     conn,
+						MaxTries: maxTries,
+						HdrVal:   u.HdrErrVal,
+						HdrMsg:   u.ErrServerFull,
+						Message:  []byte("server ful"),
+					})
+
 				conn.Close()
 				continue
 			}
@@ -148,6 +159,7 @@ func (s *Server) Start() {
 				case err := <-errChan:
 					if err != nil {
 						// log.Println("client err: ", err)
+						// FIXME; THIS IS JUST TEMPORARY CODE!
 						s.sigChan <- syscall.SIGINT
 					}
 					return
@@ -195,7 +207,7 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, errChan cha
 	}
 
 	// NOTE; this is a very important func for reacting to headers
-	_, msg, err := u.ParseIncomingMsg(data)
+	_, _, msg, err := u.ParseIncomingMsg(data)
 	if err != nil {
 		errChan <- err
 		return
@@ -208,6 +220,13 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, errChan cha
 		return
 	}
 
+	if err := s.tryValidatePass(ctx, conn, client.PassUsed); err != nil {
+		log.Println("client couldn't pass authentication")
+		errChan <- fmt.Errorf("client failed authentication")
+	}
+
+	// add client to list of clients now
+
 	log.Printf("%s", client.Name)
 	return
 }
@@ -219,10 +238,30 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, errChan cha
 // * once the conn to the server is dead, upon entering a passphrase (any) try reconning
 // to the server and submit the same details for verification; this time around the counter
 // has reset to 0 (THAT COULD BE A MASSIVE EXPLOIT!)
+//   - fix for exploit(potential); recognize the ip of the client that keeps this behaviour
+//     up and apply a cooldown of about 5 minutes to reduce spamming the server
+//
 // * don't run the ctx until user verifies code but that leaves the server's port waiting
-// which means we need a maximum server open window which the ctx solves
-func (s *Server) tryValidatePass(clientPass string) error {
+// which means we need a maximum server open window which the ctx already solves
+func (s *Server) tryValidatePass(ctx context.Context, conn net.Conn, clientPass string) error {
 	for tries := 0; tries < passTries; tries++ {
+		if u.CheckPassphrase(s.currentHash, clientPass) {
+			return nil
+		}
+
+		if tries == passTries-1 {
+			return u.ErrWrongPass
+		}
+
+		u.TryWrite(ctx,
+			&u.WriteStruct{
+				Conn:     conn,
+				MaxTries: maxTries,
+				HdrVal:   u.HdrErrVal,
+				HdrMsg:   u.ErrWrongPassphrase,
+				Message:  []byte("wrong"),
+			})
+		u.TryRead(ctx, conn, maxTries)
 	}
 	return nil
 }
@@ -233,7 +272,16 @@ func (s *Server) sendServerAuth(ctx context.Context, conn net.Conn) error {
 		case <-ctx.Done():
 			return u.ErrCtxTimeOut
 		default:
-			if err := u.TryWrite(ctx, conn, maxTries, []byte(u.HdrAckMsg), []byte(u.AckSelfReport)); err != nil {
+			err := u.TryWrite(ctx,
+				&u.WriteStruct{
+					Conn:     conn,
+					MaxTries: maxTries,
+					HdrVal:   u.HdrAckVal,
+					HdrMsg:   u.AckSelfReport,
+					Message:  []byte(""),
+				})
+
+			if err != nil {
 				// in the event the context timed out before client got server auth
 				// return that custom error we returned from sendMessage
 				if errors.Is(err, u.ErrCtxTimeOut) {

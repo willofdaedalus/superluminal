@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"errors"
 	"log"
 	"net"
 	"willofdaedalus/superluminal/utils"
@@ -42,23 +41,25 @@ func (c *Client) ConnectToServer(host, port string) error {
 	for {
 		buf, err = utils.TryRead(ctx, c.serverConn, maxConnTries)
 		if err != nil {
-			// we assume we couldn't read from the server then
+			// we assume we couldn't read from the server after many retries
 			cancel()
 			return err
 		}
 
-		hdrType, message, err := utils.ParseIncomingMsg(buf)
+		hdrType, hdrMsg, message, err := utils.ParseIncomingMsg(buf)
 		if err != nil {
 			// we connected to the wrong server
-			if errors.Is(err, utils.ErrWrongServer) {
-				log.Println(err)
-				return err
-			} else if errors.Is(err, utils.ErrUnknownHeader) {
-				log.Println(err)
-				return err
-			}
+			// if errors.Is(err, utils.ErrWrongServer) {
+			// 	log.Println(err)
+			// 	return err
+			// } else if errors.Is(err, utils.ErrUnknownHeader) {
+			// 	log.Println(err)
+			// 	return err
+			// }
+			log.Println(err)
+			return err
 		}
 
-		c.doActionWithHeader(ctx, hdrType, message)
+		c.doActionWithMsg(ctx, hdrType, hdrMsg, message)
 	}
 }

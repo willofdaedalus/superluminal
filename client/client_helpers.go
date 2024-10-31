@@ -9,8 +9,8 @@ import (
 	u "willofdaedalus/superluminal/utils"
 )
 
-func (c *Client) doActionWithHeader(ctx context.Context, headerType int, msg []byte) error {
-	switch headerType {
+func (c *Client) doActionWithMsg(ctx context.Context, hdrVal, hdrMsg int, msg []byte) error {
+	switch hdrVal {
 	case u.HdrInfoVal:
 		fmt.Println("info")
 		fmt.Printf("%s", msg)
@@ -18,7 +18,7 @@ func (c *Client) doActionWithHeader(ctx context.Context, headerType int, msg []b
 		fmt.Println("err")
 		fmt.Printf("%s", msg)
 	case u.HdrAckVal:
-		return c.fulfillAckReq(ctx, msg)
+		return c.fulfillAckReq(ctx, hdrMsg)
 	}
 
 	// FIXME
@@ -27,12 +27,13 @@ func (c *Client) doActionWithHeader(ctx context.Context, headerType int, msg []b
 }
 
 // handles the various ack messages that come from the server
-func (c *Client) fulfillAckReq(ctx context.Context, msg []byte) error {
-	if bytes.Equal(msg, []byte(u.AckSelfReport)) {
+func (c *Client) fulfillAckReq(ctx context.Context, hdrMsg int) error {
+	switch hdrMsg {
+	case u.AckSelfReport:
 		return c.encodeAndSend(ctx)
+	default:
+		return fmt.Errorf("sprlmnl: unknown ack msg")
 	}
-
-	return nil
 }
 
 // encode and send the client data to the server for safe keeping :)
@@ -40,7 +41,6 @@ func (c *Client) encodeAndSend(ctx context.Context) error {
 	sendCtx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 
-	c.PassUsed = "password"
 	var client bytes.Buffer
 	enc := gob.NewEncoder(&client)
 	err := enc.Encode(c)
@@ -48,7 +48,15 @@ func (c *Client) encodeAndSend(ctx context.Context) error {
 		return err
 	}
 
-	if err := u.TryWrite(sendCtx, c.serverConn, maxConnTries, []byte(u.HdrResMsg), client.Bytes()); err != nil {
+	err = u.TryWrite(sendCtx, &u.WriteStruct{
+		Conn:     c.serverConn,
+		MaxTries: maxConnTries,
+		HdrVal:   u.HdrResVal,
+		HdrMsg:   u.RespSelfReport,
+		Message:  client.Bytes(),
+	})
+
+	if err != nil {
 		return err
 	}
 

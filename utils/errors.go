@@ -9,6 +9,7 @@ var (
 	ErrClientExchFailed = errors.New("sprlmnl: couldn't reach client after retries")
 	ErrWrongServer      = errors.New("sprlmnl: connected to non-superluminal server; exiting")
 	ErrDecodeFailed     = errors.New("sprlmnl: couldn't decode data")
+	ErrWrongPass        = errors.New("sprlmnl: client submitted the wrong passphrase")
 )
 
 var (

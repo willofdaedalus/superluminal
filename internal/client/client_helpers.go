@@ -6,7 +6,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"time"
-	u "willofdaedalus/superluminal/utils"
+	u "willofdaedalus/superluminal/internal/utils"
 
 	"github.com/charmbracelet/huh"
 )

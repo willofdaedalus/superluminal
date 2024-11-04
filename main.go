@@ -6,10 +6,8 @@ import (
 	"log"
 	"strconv"
 
-	// "time"
-	// "willofdaedalus/superluminal/client"
-	"willofdaedalus/superluminal/client"
-	"willofdaedalus/superluminal/server"
+	"willofdaedalus/superluminal/internal/backend"
+	"willofdaedalus/superluminal/internal/client"
 
 	"github.com/charmbracelet/huh"
 )
@@ -45,8 +43,9 @@ func main() {
 		form := huh.NewForm(
 			huh.NewGroup(
 				huh.NewInput().
-					Title("what's your name? (used as id for clients)").
+					Title("what's your name?").
 					Prompt("> ").
+					CharLimit(25).
 					Value(&name),
 			).WithTheme(huh.ThemeBase16()),
 			huh.NewGroup(
@@ -66,12 +65,12 @@ func main() {
 
 		v, _ := strconv.Atoi(maxConns)
 
-		s, err := server.CreateServer(name, v)
+		s, err := backend.CreateServer(name, v)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		s.Start()
+		s.Run()
 	} else {
 		var name, pass string
 
@@ -80,6 +79,7 @@ func main() {
 				huh.NewInput().
 					Title("what's your name?").
 					Prompt("> ").
+					CharLimit(25).
 					Value(&name),
 			).WithTheme(huh.ThemeBase16()),
 			huh.NewGroup(

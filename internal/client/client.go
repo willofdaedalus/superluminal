@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 	"net"
-	"willofdaedalus/superluminal/utils"
+	"willofdaedalus/superluminal/internal/utils"
 )
 
 const (

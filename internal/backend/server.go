@@ -2,7 +2,7 @@
 // TODO; add a queueing system that keeps track of headers sent and their appropriate responses
 // to remove manual check all the time
 
-package server
+package backend
 
 import (
 	"bytes"
@@ -16,8 +16,9 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	"willofdaedalus/superluminal/client"
-	u "willofdaedalus/superluminal/utils"
+	"willofdaedalus/superluminal/internal/client"
+	"willofdaedalus/superluminal/internal/pipeline"
+	u "willofdaedalus/superluminal/internal/utils"
 
 	"github.com/google/uuid"
 )
@@ -38,6 +39,7 @@ type Server struct {
 	masterID  string
 	clients   map[string]*client.Client
 	ip, port  string
+	pipeline  *pipeline.Pipeline
 
 	pass         string
 	currentHash  string
@@ -60,6 +62,11 @@ func CreateServer(owner string, maxConns int) (*Server, error) {
 	}
 	log.Println("your pass is", pass)
 
+	// TODO;the user gets to input their name here in the future
+	masterClient := client.CreateClient(owner, "")
+	masterID := uuid.NewString()
+	clients[masterID] = masterClient
+
 	// listen on tcp port 42024 on all available p addresses of the local system.
 	// godocs recommeds not assigning a host https://pkg.go.dev/net#Listen
 	listener, err := net.Listen("tcp", ":42024")
@@ -67,10 +74,11 @@ func CreateServer(owner string, maxConns int) (*Server, error) {
 		return nil, err
 	}
 
-	// TODO;the user gets to input their name here in the future
-	masterClient := client.CreateClient(owner, "")
-	masterID := uuid.NewString()
-	clients[masterID] = masterClient
+	p, err := pipeline.NewPipeline(maxConns)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't start a new pipeline")
+	}
+	p.Subscribe(&masterClient.Conn)
 
 	return &Server{
 		OwnerName:   masterClient.Name,
@@ -82,6 +90,7 @@ func CreateServer(owner string, maxConns int) (*Server, error) {
 		hashTimeout: time.Minute * 5,
 		currentHash: hash,
 		maxClients:  maxConns + 1, // plus one to account for master client
+		pipeline:    p,
 	}, nil
 }
 
@@ -100,7 +109,7 @@ func genPassAndHash() (string, string, error) {
 	return pass, hash, nil
 }
 
-func (s *Server) Start() {
+func (s *Server) Run() {
 	// cancel to propagate shutdown signal to all child contexts
 	s.sigChan = make(chan os.Signal, 1)
 	signal.Notify(s.sigChan, s.signals...)
@@ -111,18 +120,7 @@ func (s *Server) Start() {
 		s.ShutdownServer()
 	}()
 
-	// regenerate the hash and passphrase every hashTimeout minutes
-	go func() {
-		for range time.Tick(s.hashTimeout) {
-			s.pass, s.currentHash, _ = genPassAndHash()
-			if !s.passRotated {
-				s.passRotated = true
-			}
-
-			// obviously remove this
-			fmt.Println("your new pass:", s.pass)
-		}
-	}()
+	go s.regenPass()
 
 	go func() {
 		for {
@@ -171,6 +169,19 @@ func (s *Server) Start() {
 	}()
 	<-s.sigChan
 	cancel()
+}
+
+// regenerate the hash and passphrase every hashTimeout minutes
+func (s *Server) regenPass() {
+	for range time.Tick(s.hashTimeout) {
+		s.pass, s.currentHash, _ = genPassAndHash()
+		if !s.passRotated {
+			s.passRotated = true
+		}
+
+		// TODO; remove this line
+		fmt.Println("your new pass:", s.pass)
+	}
 }
 
 func (s *Server) ShutdownServer() {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"log"
 	"time"
 	u "willofdaedalus/superluminal/internal/utils"
 
@@ -14,10 +15,9 @@ import (
 func (c *Client) doActionWithMsg(ctx context.Context, hdrVal, hdrMsg int, msg []byte) error {
 	switch hdrVal {
 	case u.HdrInfoVal:
-		fmt.Println("info")
-		fmt.Printf("%s", msg)
+		return c.fulfillInfoReq(ctx, hdrMsg)
 	case u.HdrErrVal:
-		c.fulfillErrReq(ctx, hdrMsg)
+		return c.fulfillErrReq(ctx, hdrMsg)
 	case u.HdrAckVal:
 		return c.fulfillAckReq(ctx, hdrMsg)
 	}
@@ -27,10 +27,24 @@ func (c *Client) doActionWithMsg(ctx context.Context, hdrVal, hdrMsg int, msg []
 	return nil
 }
 
+func (c *Client) fulfillInfoReq(ctx context.Context, hdrMsg int) error {
+	switch hdrMsg {
+	case u.InfoShutdown:
+		log.Println("server is shutting down")
+		c.serverConn.Close()
+		return nil
+	default:
+		return fmt.Errorf("unknown info msg")
+	}
+}
+
 func (c *Client) fulfillErrReq(ctx context.Context, hdrMsg int) error {
 	switch hdrMsg {
 	case u.ErrWrongPassphrase:
 		return c.sendPassphrase(ctx)
+	case u.ErrServerKick:
+		log.Println("sprlmnl: server kicked you for wrong passphrase")
+		return nil
 	default:
 		return fmt.Errorf("sprlmnl: unknown err msg")
 	}
@@ -59,6 +73,10 @@ func (c *Client) sendPassphrase(ctx context.Context) error {
 		HdrMsg:   u.RespNewPass,
 		Message:  []byte(newPass),
 	})
+
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	return err
 }

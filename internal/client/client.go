@@ -15,12 +15,15 @@ type Client struct {
 	Name             string
 	PassUsed         string
 	Conn, serverConn net.Conn
+	shutdownChan     chan struct{}
 }
 
 func CreateClient(name, pass string) *Client {
+	shutdownChan := make(chan struct{}, 1)
 	return &Client{
-		Name:     name,
-		PassUsed: pass,
+		Name:         name,
+		PassUsed:     pass,
+		shutdownChan: shutdownChan,
 	}
 }
 
@@ -36,13 +39,12 @@ func (c *Client) ConnectToServer(host, port string) error {
 		return err
 	}
 	c.serverConn = conn
-	defer c.serverConn.Close()
 
 	for {
 		buf, err = utils.TryRead(ctx, c.serverConn, maxConnTries)
 		if err != nil {
 			// we assume we couldn't read from the server after many retries
-			cancel()
+			// cancel()
 			return err
 		}
 

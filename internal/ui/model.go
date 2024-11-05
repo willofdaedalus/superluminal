@@ -6,20 +6,28 @@ import (
 
 const (
 	stateSwitch = "ctrl+esc"
+	offset      = 2 // this offset is not fixed
 )
-
-type model struct {
-	PtyContent chan []byte
-}
 
 func (m model) Init() tea.Cmd {
 	return nil
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	return nil, nil
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		}
+	case tea.WindowSizeMsg:
+		m.width = msg.Width - offset
+		m.height = msg.Height - offset
+	}
+
+	return m, nil
 }
 
 func (m model) View() string {
-	return ""
+	return m.renderMainBorder()
 }

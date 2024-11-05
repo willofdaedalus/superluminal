@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 	"willofdaedalus/superluminal/internal/client"
@@ -29,18 +30,19 @@ const (
 )
 
 const (
-	maxTries  = 3
-	passTries = 3
+	maxTries   = 3
+	passTries  = 3
+	maxTimeout = time.Minute * 1
 )
 
 type Server struct {
 	OwnerName string
-	listener  net.Listener
-	masterID  string
-	clients   map[string]*client.Client
-	ip, port  string
-	pipeline  *pipeline.Pipeline
 
+	listener     net.Listener
+	masterID     string
+	clients      map[string]*client.Client
+	ip, port     string
+	pipeline     *pipeline.Pipeline
 	pass         string
 	currentHash  string
 	passRotated  bool
@@ -50,6 +52,7 @@ type Server struct {
 	signals      []os.Signal
 	hashTimeout  time.Duration
 	maxClients   int
+	mu           sync.Mutex
 }
 
 func CreateServer(owner string, maxConns int) (*Server, error) {
@@ -120,7 +123,7 @@ func (s *Server) Run() {
 		s.ShutdownServer()
 	}()
 
-	go s.regenPass()
+	go s.newPass()
 
 	go func() {
 		for {
@@ -142,7 +145,7 @@ func (s *Server) Run() {
 						MaxTries: maxTries,
 						HdrVal:   u.HdrErrVal,
 						HdrMsg:   u.ErrServerFull,
-						Message:  []byte("server ful"),
+						Message:  []byte("server full"),
 					})
 
 				conn.Close()
@@ -159,11 +162,14 @@ func (s *Server) Run() {
 						// log.Println("client err: ", err)
 						// FIXME; THIS IS JUST TEMPORARY CODE!
 						s.sigChan <- syscall.SIGINT
+						close(errChan)
 					}
 					return
 				case <-ctx.Done():
+					if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+						conn.Close()
+					}
 				}
-				conn.Close()
 			}(conn)
 		}
 	}()
@@ -172,7 +178,7 @@ func (s *Server) Run() {
 }
 
 // regenerate the hash and passphrase every hashTimeout minutes
-func (s *Server) regenPass() {
+func (s *Server) newPass() {
 	for range time.Tick(s.hashTimeout) {
 		s.pass, s.currentHash, _ = genPassAndHash()
 		if !s.passRotated {
@@ -185,33 +191,79 @@ func (s *Server) regenPass() {
 }
 
 func (s *Server) ShutdownServer() {
+	// ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	// defer cancel()
+
 	// add code to close all other clients
 	log.Println("shutting down server now")
+	// this gives the client a chance to detach itself and close the connection
+	// to the server but if the client is unresponsive the server has no choice
+	// than to close the connection by force
+	for k, v := range s.clients {
+		if k != s.masterID {
+			s.pipeline.Unsubscribe(&v.Conn)
+			// err := u.TryWrite(ctx, &u.WriteStruct{
+			err := u.TryWrite(context.TODO(), &u.WriteStruct{
+				Conn:     v.Conn,
+				HdrVal:   u.HdrInfoVal,
+				HdrMsg:   u.InfoShutdown,
+				MaxTries: maxTries,
+			})
+
+			// force close the connection as cleanup as we assume the
+			// client has already disconnected prematurely
+			if err != nil {
+				v.Conn.Close()
+			}
+
+			delete(s.clients, k)
+		}
+	}
+
+	// select {
+	// case <-ctx.Done():
+	// 	for k, v := range s.clients {
+	// 		if k != s.masterID {
+	// 			v.Conn.Close()
+	// 		}
+	// 		delete(s.clients, k)
+	// 	}
+	// }
+	s.pipeline.Close()
 	s.listener.Close()
 }
 
+// authenticate and prepare client for joining the pipeline
 func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, errChan chan<- error) {
+	s.mu.Lock()
 	var client client.Client
 	var clientData bytes.Buffer
-	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
-	defer cancel()
+	handleCtx, cancel := context.WithTimeout(ctx, maxTimeout)
+
+	defer func() {
+		defer s.mu.Unlock()
+		defer cancel()
+	}()
 
 	go func() {
 		select {
-		case <-ctx.Done():
-			errChan <- u.ErrCtxTimeOut
-			return
+		case <-handleCtx.Done():
+			// only send an err across the channel when the deadline is exceeded
+			if errors.Is(handleCtx.Err(), context.DeadlineExceeded) {
+				errChan <- u.ErrCtxTimeOut
+				return
+			}
 		}
 	}()
 
 	// send the server identification message to the client
-	if err := s.sendServerAuth(ctx, conn); err != nil {
+	if err := s.sendServerAuth(handleCtx, conn); err != nil {
 		errChan <- err
 		return
 	}
 
 	// read the information from the client
-	data, err := u.TryRead(ctx, conn, maxTries)
+	data, err := u.TryRead(handleCtx, conn, maxTries)
 	if err != nil {
 		errChan <- err
 		return
@@ -231,14 +283,25 @@ func (s *Server) handleNewClient(ctx context.Context, conn net.Conn, errChan cha
 		return
 	}
 
-	if err := s.tryValidatePass(ctx, conn, client.PassUsed); err != nil {
-		log.Println("client couldn't pass authentication")
+	// maybe pass a message to the client about the wrong pass
+	if err := s.tryValidatePass(handleCtx, conn, client.PassUsed); err != nil {
+		u.TryWrite(context.TODO(), &u.WriteStruct{
+			Conn:     conn,
+			MaxTries: 3,
+			HdrVal:   u.HdrErrVal,
+			HdrMsg:   u.ErrServerKick,
+			Message:  []byte("wrong_pass"),
+		})
 		errChan <- fmt.Errorf("client failed authentication")
+		return
 	}
-
 	// add client to list of clients now
+	client.Conn = conn
+	s.clients[uuid.NewString()] = &client
+	// s.pipeline.Subscribe(&conn)
 
-	log.Printf("%s", client.Name)
+	fmt.Println("welcome", client.Name)
+
 	return
 }
 
@@ -264,21 +327,32 @@ func (s *Server) tryValidatePass(ctx context.Context, conn net.Conn, clientPass 
 			return u.ErrWrongPass
 		}
 
-		u.TryWrite(ctx,
+		err := u.TryWrite(ctx,
 			&u.WriteStruct{
 				Conn:     conn,
 				MaxTries: maxTries,
 				HdrVal:   u.HdrErrVal,
 				HdrMsg:   u.ErrWrongPassphrase,
-				Message:  []byte("wrong"),
+				Message:  []byte("wrong_pass"),
 			})
+		if err != nil {
+			return err
+		}
+
 		p, err := u.TryRead(ctx, conn, maxTries)
 		if err != nil {
 			return err
 		}
 
-		clientPass = string(p)
+		// parse and extract the relevant message from the client's message
+		_, _, msg, err := u.ParseIncomingMsg(p)
+		if err != nil {
+			return err
+		}
+
+		clientPass = string(msg)
 	}
+
 	return nil
 }
 

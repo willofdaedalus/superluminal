@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+const (
+	// this is very generous and is half of the usual and original ctx that
+	// is passed from handleNewClient in server.go
+	maxConnTime = time.Second * 30
+)
+
 type WriteStruct struct {
 	Conn     net.Conn
 	MaxTries int
@@ -30,7 +36,7 @@ func (ws *WriteStruct) headerMsgByte() []byte {
 }
 
 func TryWrite(ctx context.Context, ws *WriteStruct) error {
-	writeCtx, cancel := context.WithTimeout(ctx, time.Second*5)
+	writeCtx, cancel := context.WithTimeout(ctx, maxConnTime)
 	defer cancel()
 
 	endChan := make(chan error, 1)
@@ -61,8 +67,10 @@ func TryWrite(ctx context.Context, ws *WriteStruct) error {
 				retryTime := time.Millisecond * 500 * (1 << uint(tries))
 				select {
 				case <-writeCtx.Done():
-					endChan <- writeCtx.Err()
-					return
+					if errors.Is(writeCtx.Err(), context.DeadlineExceeded) {
+						endChan <- writeCtx.Err()
+						return
+					}
 				case <-time.After(retryTime):
 					log.Printf("retrying connection to server again...")
 					continue
@@ -77,7 +85,7 @@ func TryWrite(ctx context.Context, ws *WriteStruct) error {
 }
 
 func TryRead(ctx context.Context, conn net.Conn, maxConnTries int) ([]byte, error) {
-	readCtx, cancel := context.WithTimeout(ctx, time.Second*5)
+	readCtx, cancel := context.WithTimeout(ctx, maxConnTime)
 	defer cancel()
 
 	buf := make(chan []byte, 1)
@@ -127,9 +135,11 @@ func TryRead(ctx context.Context, conn net.Conn, maxConnTries int) ([]byte, erro
 				retryTime := time.Millisecond * 500 * (1 << uint(tries))
 				select {
 				case <-readCtx.Done():
-					buf <- nil
-					errChan <- readCtx.Err()
-					return
+					if errors.Is(readCtx.Err(), context.DeadlineExceeded) {
+						buf <- nil
+						errChan <- readCtx.Err()
+						return
+					}
 				case <-time.After(retryTime):
 					log.Printf("retrying connection to server again...")
 					continue

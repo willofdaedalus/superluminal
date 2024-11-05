@@ -24,11 +24,17 @@ const (
 	AckSelfReport = iota + 301
 )
 
+// info messages
+const (
+	InfoShutdown = iota + 101
+)
+
 // err messages
 const (
 	ErrResendPass = iota + 401
 	ErrServerFull
 	ErrWrongPassphrase
+	ErrServerKick
 )
 
 // res messages

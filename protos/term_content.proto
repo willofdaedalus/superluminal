@@ -1,0 +1,9 @@
+syntax = "proto3";
+option go_package = "willofdaedalus/superluminal/internal/payload/term";
+
+message TerminalContent {
+    string message_id = 1;
+    fixed32 message_length = 2;
+    bytes data = 3;
+    uint32 crc32 = 4;
+}

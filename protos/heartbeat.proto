@@ -1,0 +1,12 @@
+syntax = "proto3";
+option go_package = "willofdaedalus/superluminal/internal/payload/heartbeat";
+
+message Heartbeat {
+    enum HeartbeatType {
+        HEARTBEAT_TYPE_UNSPECIFIED = 0;
+        HEARTBEAT_TYPE_PING = 1;
+        HEARTBEAT_TYPE_PONG = 2;
+    }
+    HeartbeatType type = 1;
+    string payload = 2;
+}

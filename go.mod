@@ -10,6 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/sethvargo/go-diceware v0.4.0
 	golang.org/x/crypto v0.28.0
+	google.golang.org/protobuf v1.35.1
 )
 
 require (

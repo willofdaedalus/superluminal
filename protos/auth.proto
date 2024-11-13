@@ -1,0 +1,25 @@
+syntax = "proto3";
+option go_package = "willofdaedalus/superluminal/internal/payload/auth";
+
+message AuthRequest {
+    string client_id = 1;
+    string version = 2;
+}
+
+message AuthResponse {
+    string username = 1;
+    string passphrase = 2;
+}
+
+message Authentication {
+    enum AuthType {
+        AUTH_TYPE_UNSPECIFIED = 0;
+        AUTH_TYPE_REQUEST = 1;
+        AUTH_TYPE_RESPONSE = 2;
+    }
+    AuthType auth = 1;
+    oneof authType {
+        AuthRequest request = 2;
+        AuthResponse response = 3;
+    }
+}

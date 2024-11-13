@@ -1,0 +1,14 @@
+syntax = "proto3";
+option go_package = "willofdaedalus/superluminal/internal/payload/error";
+
+message ErrorMessage {
+    enum ErrorCode {
+        ERROR_UNSPECIFIED = 0;
+        ERROR_AUTH_FAILED = 1;
+        ERROR_CRC_MISMATCH = 2;
+        ERROR_SERVER_FULL = 3;
+    }
+    ErrorCode code = 1;
+    bytes message = 2;
+    bytes detail = 3;
+}

@@ -16,7 +16,9 @@ import (
 const (
 	// this is very generous and is half of the usual and original ctx that
 	// is passed from handleNewClient in server.go
-	maxConnTime = time.Second * 30
+	MaxConnTime    = time.Second * 30
+	MaxBackoffTime = time.Second * 7
+	MaxTries       = 5
 )
 
 type WriteStruct struct {
@@ -35,8 +37,118 @@ func (ws *WriteStruct) headerMsgByte() []byte {
 	return []byte(fin)
 }
 
+// TryWriteCtx attempts to write to the conn passed and retries up to a number of times
+// defined until it gives up and returns an error
+// it respects the context passed to it
+func TryWriteCtx(ctx context.Context, conn net.Conn, data []byte) error {
+	writeCtx, cancel := context.WithTimeout(ctx, MaxConnTime)
+	defer cancel()
+
+	for tries := 0; tries < MaxTries; tries++ {
+		deadline, ok := writeCtx.Deadline()
+		if ok {
+			if err := conn.SetWriteDeadline(deadline); err != nil {
+				if errors.Is(err, os.ErrDeadlineExceeded) {
+					return ErrCtxTimeOut
+				}
+
+				return ErrDeadlineUnsuccessful
+			}
+		}
+
+		if tries == MaxTries-1 {
+			return ErrFailedAfterRetries
+		}
+
+		_, err := conn.Write(data)
+		if err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				return ErrCtxTimeOut
+			}
+
+			if errors.Is(err, io.EOF) {
+				return io.EOF
+			}
+
+			retryTime := time.Second * (1 << uint(tries))
+			if retryTime > MaxBackoffTime {
+				retryTime = MaxBackoffTime
+			}
+
+			select {
+			case <-writeCtx.Done():
+				if errors.Is(writeCtx.Err(), context.DeadlineExceeded) {
+					return writeCtx.Err()
+				}
+			case <-time.After(retryTime):
+				log.Printf("retrying connection to server...")
+				continue
+			}
+		}
+
+		// successful write
+		conn.SetWriteDeadline(time.Time{}) // Reset the deadline
+		return nil
+	}
+
+	return ErrFailedAfterRetries
+}
+
+func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
+	var data bytes.Buffer
+	writeCtx, cancel := context.WithTimeout(ctx, MaxConnTime)
+	defer cancel()
+
+	buf := make([]byte, MaxPayloadSize)
+	for tries := 0; tries < MaxTries; tries++ {
+		deadline, ok := writeCtx.Deadline()
+		if ok {
+			if err := conn.SetReadDeadline(deadline); err != nil {
+				if errors.Is(err, os.ErrDeadlineExceeded) {
+					return nil, ErrCtxTimeOut
+				}
+
+				return nil, ErrDeadlineUnsuccessful
+			}
+		}
+
+		if tries == MaxTries-1 {
+			return nil, ErrFailedAfterRetries
+		}
+
+		n, err := conn.Read(buf)
+		if err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				return nil, ErrCtxTimeOut
+			}
+
+			if errors.Is(err, io.EOF) {
+				return nil, ErrServerClosed
+			}
+
+			retryTime := time.Second * (1 << uint(tries))
+			select {
+			case <-writeCtx.Done():
+				if errors.Is(writeCtx.Err(), context.DeadlineExceeded) {
+					return nil, writeCtx.Err()
+				}
+			case <-time.After(retryTime):
+				log.Printf("retrying connection to server...")
+				continue
+			}
+		}
+
+		// Successful read
+		data.Write(buf[:n])
+		conn.SetReadDeadline(time.Time{}) // Reset the deadline
+		return data.Bytes(), nil
+	}
+
+	return nil, ErrFailedAfterRetries
+}
+
 func TryWrite(ctx context.Context, ws *WriteStruct) error {
-	writeCtx, cancel := context.WithTimeout(ctx, maxConnTime)
+	writeCtx, cancel := context.WithTimeout(ctx, MaxConnTime)
 	defer cancel()
 
 	endChan := make(chan error, 1)
@@ -64,7 +176,7 @@ func TryWrite(ctx context.Context, ws *WriteStruct) error {
 					return
 				}
 
-				retryTime := time.Millisecond * 500 * (1 << uint(tries))
+				retryTime := time.Second * 1 * (1 << uint(tries))
 				select {
 				case <-writeCtx.Done():
 					if errors.Is(writeCtx.Err(), context.DeadlineExceeded) {
@@ -85,7 +197,7 @@ func TryWrite(ctx context.Context, ws *WriteStruct) error {
 }
 
 func TryRead(ctx context.Context, conn net.Conn, maxConnTries int) ([]byte, error) {
-	readCtx, cancel := context.WithTimeout(ctx, maxConnTime)
+	readCtx, cancel := context.WithTimeout(ctx, MaxConnTime)
 	defer cancel()
 
 	buf := make(chan []byte, 1)
@@ -132,7 +244,7 @@ func TryRead(ctx context.Context, conn net.Conn, maxConnTries int) ([]byte, erro
 				}
 
 				// check context before sleeping
-				retryTime := time.Millisecond * 500 * (1 << uint(tries))
+				retryTime := time.Second * 1 * (1 << uint(tries))
 				select {
 				case <-readCtx.Done():
 					if errors.Is(readCtx.Err(), context.DeadlineExceeded) {

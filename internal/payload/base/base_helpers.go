@@ -1,7 +1,6 @@
 package base
 
 import (
-	"fmt"
 	"hash/crc32"
 	"time"
 	"willofdaedalus/superluminal/internal/payload/common"
@@ -31,7 +30,7 @@ func EncodePayload(header common.Header, content isPayload_Content) ([]byte, err
 	// case common.Header_HEADER_TYPE_SERVER_SHUTDOWN:
 	// case common.Header_HEADER_UNSPECIFIED:
 	default:
-		fmt.Printf("unexpected common.Header: %#v", header)
+		return nil, ErrHeaderPayloadMismatch
 	}
 
 	payload := Payload{
@@ -64,6 +63,8 @@ func DecodePayload(data []byte) (*Payload, error) {
 	return &payload, nil
 }
 
+// GenerateError creates and passes a Payload of type Error which satisfies the interface requirement
+// of EncodePayload. Used to share error messages
 func GenerateError(errType err1.ErrorMessage_ErrorCode, errMsg []byte, deets []byte) *Payload_Error {
 	return &Payload_Error{
 		Error: &err1.ErrorMessage{

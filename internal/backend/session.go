@@ -2,12 +2,14 @@ package backend
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log"
 	"net"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
+	"willofdaedalus/superluminal/internal/utils"
 
 	err1 "willofdaedalus/superluminal/internal/payload/error"
 )
@@ -45,6 +47,9 @@ func NewSession(owner string, maxConns uint8) (*Session, error) {
 }
 
 func (s *Session) Start() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
@@ -65,11 +70,13 @@ func (s *Session) Start() {
 				continue
 			}
 
-			_, err = conn.Write(errPayload)
+			err = utils.TryWriteCtx(ctx, conn, errPayload)
 			if err != nil {
 				if errors.Is(err, io.EOF) {
 					log.Println("sprlmnl: client is closed")
 				}
+
+				log.Printf("%v", err)
 			}
 			conn.Close()
 			continue

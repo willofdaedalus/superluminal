@@ -3,11 +3,16 @@ package utils
 // headers and their values
 // consider transferring less bytes over the connection
 // const (
-// 	HdrInfoMsg = "sprlmnl+inf:"
-// 	HdrErrMsg  = "sprlmnl+err:"
-// 	HdrAckMsg  = "sprlmnl+ack:"
-// 	HdrResMsg  = "sprlmnl+res:"
+//
+//	HdrInfoMsg = "sprlmnl+inf:"
+//	HdrErrMsg  = "sprlmnl+err:"
+//	HdrAckMsg  = "sprlmnl+ack:"
+//	HdrResMsg  = "sprlmnl+res:"
+//
 // )
+const (
+	MaxPayloadSize = 4096 // 4kb
+)
 
 // headers
 const (
@@ -22,17 +27,18 @@ const (
 // ack messages
 const (
 	AckSelfReport = iota + 301
+	AckClientShutdown
 )
 
 // info messages
 const (
-	InfoShutdown = iota + 101
+	InfoServerShutdown = iota + 101
+	InfoClientShutdown
 )
 
 // err messages
 const (
 	ErrResendPass = iota + 401
-	ErrServerFull
 	ErrWrongPassphrase
 	ErrServerKick
 )
@@ -40,5 +46,6 @@ const (
 // res messages
 const (
 	RespSelfReport = iota + 501
+	RespClientShutdown
 	RespNewPass
 )

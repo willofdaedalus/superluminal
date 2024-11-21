@@ -1,0 +1,13 @@
+syntax = "proto3";
+option go_package = "willofdaedalus/superluminal/internal/payload/info";
+
+message Info {
+	enum InfoType {
+		INFO_UNSPECIFIED = 0;
+		INFO_AUTH_SUCCESS = 1;
+		INFO_SHUTDOWN = 2;
+	}
+
+	InfoType infoType = 1;
+	string message = 2;
+}

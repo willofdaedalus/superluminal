@@ -104,11 +104,11 @@ func (s *session) Start() error {
 					return
 				}
 
-				// Handle connection outside of mutex
 				if err := s.handleNewConn(ctx, conn); err != nil {
 					log.Printf("handle connection error: %v", err)
 					errChan <- err
 				}
+				errChan <- nil
 			}(conn)
 
 			select {

@@ -1,17 +1,24 @@
 package client
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
 	err1 "willofdaedalus/superluminal/internal/payload/error"
 	"willofdaedalus/superluminal/internal/payload/info"
 	"willofdaedalus/superluminal/internal/utils"
+)
+
+const (
+	passEntryTimeout = time.Second * 5
 )
 
 func (c *client) handleErrPayload(payload base.Payload_Error) error {
@@ -33,13 +40,38 @@ func (c *client) handleErrPayload(payload base.Payload_Error) error {
 
 func (c *client) handleAuthPayload(ctx context.Context) error {
 	var pass string
-	prompt := "enter passphrase: "
-	if c.sentPass {
-		prompt = "re-enter the passphrase: "
-	}
 
-	fmt.Print(prompt)
-	fmt.Scanln(&pass)
+	authCtx, cancel := context.WithTimeout(ctx, passEntryTimeout)
+	defer cancel()
+
+	passChan := make(chan string, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		prompt := "enter passphrase: "
+		if c.sentPass {
+			prompt = "re-enter the passphrase: "
+		}
+		fmt.Print(prompt)
+
+		// use a scanner to handle potential input issues
+		scanner := bufio.NewScanner(os.Stdin)
+		if scanner.Scan() {
+			passChan <- scanner.Text()
+		} else {
+			errChan <- scanner.Err()
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		log.Print("you waited too long")
+		return errors.New("passphrase entry timed out")
+	case inputErr := <-errChan:
+		return fmt.Errorf("input error: %w", inputErr)
+	case pass = <-passChan:
+		// Continue with authentication
+	}
 
 	authResp := base.GenerateAuthResp(c.name, pass)
 	resp, err := base.EncodePayload(common.Header_HEADER_AUTH, authResp)
@@ -47,12 +79,11 @@ func (c *client) handleAuthPayload(ctx context.Context) error {
 		return err
 	}
 
-	if err := utils.TryWriteCtx(ctx, c.serverConn, resp); err != nil {
-		log.Fatal(err)
+	if err := utils.TryWriteCtx(authCtx, c.serverConn, resp); err != nil {
+		return err
 	}
 
 	c.sentPass = true
-
 	return nil
 }
 

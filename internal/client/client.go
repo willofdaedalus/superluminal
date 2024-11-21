@@ -13,6 +13,7 @@ import (
 	"time"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
+	"willofdaedalus/superluminal/internal/utils"
 	u "willofdaedalus/superluminal/internal/utils"
 )
 
@@ -67,9 +68,13 @@ func (c *client) cleanResources() {
 }
 
 func (c *client) ListenForMessages(errChan chan<- error) {
-	ctx := context.Background()
-	defer c.cleanResources()
-	defer close(errChan) // Ensure error channel gets closed
+	ctx, cancelMain := context.WithCancel(context.Background())
+
+	defer func() {
+		cancelMain()
+		c.cleanResources()
+		close(errChan) // Ensure error channel gets closed
+	}()
 
 	messageHandler := make(chan error)
 	go func() {
@@ -93,6 +98,17 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 			}
 
 			if err := c.processPayload(ctx, data); err != nil {
+				// TODO: in the future reconnect when necessary so to ensure a smooth UX
+				// if errors.Is(err, utils.ErrCtxTimeOut) {
+				// 	log.Println("you waited too long to connect")
+				// 	continue
+				// }
+
+				if errors.Is(err, utils.ErrCtxTimeOut) {
+					messageHandler <- fmt.Errorf("you waited too long to enter a passphrase")
+					continue
+				}
+
 				messageHandler <- err
 				return
 			}
@@ -108,13 +124,11 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 		c.exitChan <- struct{}{}
 	case <-c.exitChan:
 		fmt.Println("brrrr (from exit)")
+		cancelMain()
 	}
 }
 
 func (c *client) processPayload(ctx context.Context, data []byte) error {
-	procCtx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
-
 	payload, err := base.DecodePayload(data)
 	if err != nil {
 		return err
@@ -131,7 +145,7 @@ func (c *client) processPayload(ctx context.Context, data []byte) error {
 		// we only need to check its type but we won't use the actual payload
 		_, ok := payload.GetContent().(*base.Payload_Auth)
 		if ok {
-			return c.handleAuthPayload(procCtx)
+			return c.handleAuthPayload(ctx)
 		}
 
 	case common.Header_HEADER_INFO:

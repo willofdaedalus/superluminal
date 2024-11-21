@@ -44,9 +44,11 @@ func (s *session) authenticateClient(ctx context.Context, conn net.Conn) (string
 
 func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, authPayload []byte) (string, error) {
 	for try := 0; try < MaxAuthChances; try++ {
-		// send the auth request bytes
-		// let TryWriteCtx handle the ctx timeout
-		err := utils.TryWriteCtx(ctx, conn, authPayload)
+		log.Println("try no", try)
+
+		tempCtx, cancel := context.WithTimeout(ctx, clientKickTimeout)
+		defer cancel()
+		err := utils.TryWriteCtx(tempCtx, conn, authPayload)
 		if err != nil {
 			// let handleNewConn handle the error; send it upstream
 			return "", err
@@ -57,8 +59,8 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 			if errors.Is(err, utils.ErrCtxTimeOut) {
 				continue
 			}
-			// Return other errors immediately
-			return "", fmt.Errorf("failed to read client response: %w", err)
+			// return other errors immediately
+			return "", err
 		}
 		fmt.Println("received", len(clientResp))
 

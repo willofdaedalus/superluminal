@@ -21,6 +21,8 @@ const (
 	DebugPassCount = 1
 	MaxHandleTime  = time.Minute * 1
 	MaxAuthChances = 3
+
+	clientKickTimeout = time.Second * 30
 )
 
 func NewSession(owner string, maxConns uint8) (*session, error) {
@@ -63,7 +65,6 @@ func (s *session) Start() error {
 
 	go func() {
 		defer close(doneChan)
-
 		for {
 			conn, err := s.listener.Accept()
 			if err != nil {
@@ -86,7 +87,10 @@ func (s *session) Start() error {
 						return
 					}
 
-					err = utils.TryWriteCtx(ctx, conn, errPayload)
+					// need a minute to write to the client; if it's not possible don't bother
+					tempCtx, tempCancel := context.WithTimeout(ctx, clientKickTimeout)
+					err = utils.TryWriteCtx(tempCtx, conn, errPayload)
+					tempCancel()
 					if err != nil {
 						if errors.Is(err, io.EOF) {
 							log.Println("sprlmnl: client is closed")
@@ -106,27 +110,36 @@ func (s *session) Start() error {
 					errChan <- err
 				}
 			}(conn)
+
+			select {
+			case err := <-errChan:
+				log.Println("err from client: ", err)
+				continue
+			}
 		}
 	}()
 
 	// Wait for and handle errors
 	select {
-	case err := <-errChan:
-		return err
 	case <-doneChan:
 		return nil
 	}
 }
 
-func (s *session) kickAndCloseClient(errType err1.ErrorMessage_ErrorCode, conn net.Conn) {
-	defer conn.Close()
+func (s *session) kickAndCloseClient(ctx context.Context, errType err1.ErrorMessage_ErrorCode, conn net.Conn) {
+	kickCtx, cancel := context.WithTimeout(ctx, clientKickTimeout)
+	defer func() {
+		cancel()
+		conn.Close()
+	}()
+
 	errPayload := base.GenerateError(errType, []byte("failed_auth"), []byte("failed to authenticate with session"))
 	payload, err := base.EncodePayload(common.Header_HEADER_ERROR, errPayload)
 	if err != nil {
 		return
 	}
 
-	err = utils.TryWriteCtx(context.Background(), conn, payload)
+	err = utils.TryWriteCtx(kickCtx, conn, payload)
 	if err != nil {
 		return
 	}
@@ -142,8 +155,8 @@ func (s *session) End() {
 func (s *session) handleNewConn(ctx context.Context, conn net.Conn) error {
 	name, err := s.authenticateClient(ctx, conn)
 	if err != nil {
-		s.kickAndCloseClient(err1.ErrorMessage_ERROR_AUTH_FAILED, conn)
-		return fmt.Errorf("authentication failed: %w", err)
+		s.kickAndCloseClient(ctx, err1.ErrorMessage_ERROR_AUTH_FAILED, conn)
+		return err
 	}
 
 	s.mu.Lock()

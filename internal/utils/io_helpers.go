@@ -40,7 +40,7 @@ func (ws *WriteStruct) headerMsgByte() []byte {
 // defined until it gives up and returns an error
 // it respects the context passed to it
 func TryWriteCtx(ctx context.Context, conn net.Conn, data []byte) error {
-	writeCtx, cancel := context.WithTimeout(ctx, MaxConnTime)
+	writeCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	for tries := 0; tries < maxTries; tries++ {
@@ -93,10 +93,14 @@ func TryWriteCtx(ctx context.Context, conn net.Conn, data []byte) error {
 	return ErrFailedAfterRetries
 }
 
+// TryReadCtx relies on external timeouts and deadlines in order to function
+// properly. this makes it robust for all situations including those that
+// are not in any hurry to read something from a connection
 func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 	var data bytes.Buffer
-	writeCtx, cancel := context.WithTimeout(ctx, MaxConnTime)
+	writeCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
 	buf := make([]byte, MaxPayloadSize)
 
 	for tries := 0; tries < maxTries; tries++ {

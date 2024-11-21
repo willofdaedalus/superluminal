@@ -13,7 +13,6 @@ import (
 	"time"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
-	"willofdaedalus/superluminal/internal/utils"
 	u "willofdaedalus/superluminal/internal/utils"
 )
 
@@ -29,6 +28,7 @@ type client struct {
 	exitChan    chan struct{}
 	sigChan     chan os.Signal
 	sentPass    bool
+	isApproved  bool
 }
 
 func New(name string) *client {
@@ -62,19 +62,15 @@ func (c *client) ConnectToSession(ctx context.Context, host, port string) error 
 	return nil
 }
 
-func (c *client) cleanResources() {
-	c.serverConn.Close()
-	close(c.exitChan)
-}
-
 func (c *client) ListenForMessages(errChan chan<- error) {
 	ctx, cancelMain := context.WithCancel(context.Background())
 
 	defer func() {
+		c.startCleanup(ctx)
 		cancelMain()
-		c.cleanResources()
-		close(errChan) // Ensure error channel gets closed
 	}()
+
+	// go c.handleSignals()
 
 	messageHandler := make(chan error)
 	go func() {
@@ -88,8 +84,10 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 					log.Println("timed out waiting for server")
 					continue
 				}
-				messageHandler <- err
-				return
+				// messageHandler <- err
+				// return
+				// TODO; SEND THIS ERROR UPSTREAM FOR BUBBLETEA TO INTERCEPT
+				log.Fatal(err)
 			}
 
 			if data == nil {
@@ -104,7 +102,7 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 				// 	continue
 				// }
 
-				if errors.Is(err, utils.ErrCtxTimeOut) {
+				if errors.Is(err, u.ErrCtxTimeOut) {
 					messageHandler <- fmt.Errorf("you waited too long to enter a passphrase")
 					continue
 				}

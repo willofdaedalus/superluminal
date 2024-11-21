@@ -64,8 +64,6 @@ func main() {
 			if errors.Is(err, utils.ErrServerFull) {
 				log.Fatal(err.Error())
 			}
-			log.Printf("Error: %v", err)
-			// Handle other errors...
 		}
 		<-done // Wait for client to fully shut down
 	}

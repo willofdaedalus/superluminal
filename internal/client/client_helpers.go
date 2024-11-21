@@ -18,7 +18,9 @@ import (
 )
 
 const (
+	// passEntryTimeout = time.Minute * 2
 	passEntryTimeout = time.Second * 5
+	cleanupTime      = time.Second * 30
 )
 
 func (c *client) handleErrPayload(payload base.Payload_Error) error {
@@ -91,13 +93,55 @@ func (c *client) handleInfoPayload(payload base.Payload_Info) error {
 	switch payload.Info.GetInfoType() {
 	case info.Info_INFO_AUTH_SUCCESS:
 		log.Println(payload.Info.GetMessage())
+		c.isApproved = true
 		return nil
 	}
 
 	return utils.ErrUnspecifiedPayload
 }
 
+func (c *client) startCleanup(ctx context.Context) {
+	cleanCtx, cancel := context.WithTimeout(ctx, cleanupTime)
+	// mainly deferred here in case the utils.TryWriteCtx fails
+	defer func() {
+		cancel()
+		close(c.sigChan)
+		close(c.exitChan)
+		c.serverConn.Close()
+	}()
+
+	// only send a message if the server has accepted this client
+	if c.isApproved {
+		infoPayload := base.GenerateInfo(info.Info_INFO_SHUTDOWN, "client_shutdown")
+		payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
+		if err != nil {
+			return
+		}
+
+		err = utils.TryWriteCtx(cleanCtx, c.serverConn, payload)
+		if err != nil {
+			// server is already shutdown
+			// if errors.Is(err, io.EOF) {
+			// 	return
+			// }
+			// check the errors we don't want to return on
+			// if !(errors.Is(err, io.EOF) || errors.Is(err, utils.ErrCtxTimeOut)) {
+			// 	return
+			// }
+			return
+		}
+	}
+}
+
 func (c *client) handleSignals() {
-	signals := []os.Signal{syscall.SIGHUP, syscall.SIGTERM, syscall.SIGKILL}
+	signals := []os.Signal{syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM}
 	signal.Notify(c.sigChan, signals...)
+
+	for {
+		select {
+		case <-c.sigChan:
+			c.startCleanup(context.Background())
+			return
+		}
+	}
 }

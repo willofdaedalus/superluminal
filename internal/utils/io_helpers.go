@@ -126,7 +126,7 @@ func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 				return nil, ErrCtxTimeOut
 			}
 			if errors.Is(err, io.EOF) {
-				return nil, ErrServerClosed
+				return nil, ErrConnectionClosed
 			}
 
 			retryTime := time.Second * (1 << uint(tries))

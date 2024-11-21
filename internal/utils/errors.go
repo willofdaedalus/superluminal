@@ -7,7 +7,7 @@ var (
 	ErrCtxTimeOut       = errors.New("sprlmnl: server context timed out")
 	ErrFailedServerAuth = errors.New("sprlmnl: couldn't send server auth to client")
 	ErrClientExchFailed = errors.New("sprlmnl: couldn't reach client after retries")
-	ErrServerClosed     = errors.New("sprlmnl: server is closed")
+	ErrConnectionClosed = errors.New("sprlmnl: connection closed on other side")
 	ErrWrongServer      = errors.New("sprlmnl: connected to non-superluminal server; exiting")
 	ErrDecodeFailed     = errors.New("sprlmnl: couldn't decode data")
 	ErrWrongPass        = errors.New("sprlmnl: client submitted the wrong passphrase")

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -51,64 +52,69 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 	}, nil
 }
 
-func (s *session) Start() {
-	errChan := make(chan error)
+func (s *session) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer func() {
-		cancel()
-		close(errChan)
-	}()
+	defer cancel()
+
+	errChan := make(chan error, 1)
+	doneChan := make(chan struct{})
 
 	log.Println("server started...")
 
-	for {
-		conn, err := s.listener.Accept()
-		if err != nil {
-			continue
-		}
+	go func() {
+		defer close(doneChan)
 
-		// send an error message to the client and close the connection
-		if len(s.clients) >= int(s.maxConns) {
-			errorMsg := base.GenerateError(
-				err1.ErrorMessage_ERROR_SERVER_FULL,
-				[]byte("server_full"),
-				[]byte("server is full"),
-			)
-
-			errPayload, err := base.EncodePayload(common.Header_HEADER_ERROR, errorMsg)
+		for {
+			conn, err := s.listener.Accept()
 			if err != nil {
-				conn.Close()
-				continue
+				errChan <- fmt.Errorf("accept error: %w", err)
+				return
 			}
 
-			err = utils.TryWriteCtx(ctx, conn, errPayload)
-			if err != nil {
-				if errors.Is(err, io.EOF) {
-					log.Println("sprlmnl: client is closed")
-				}
+			// Use a buffered channel to manage concurrency
+			go func(conn net.Conn) {
+				if len(s.clients) >= int(s.maxConns) {
+					errorMsg := base.GenerateError(
+						err1.ErrorMessage_ERROR_SERVER_FULL,
+						[]byte("server_full"),
+						[]byte("server is full"),
+					)
 
-				log.Printf("%v", err)
-			}
-			conn.Close()
-			log.Println("rejected client with server_full error")
-			continue
-		}
-
-		go s.handleNewConn(ctx, conn, errChan)
-
-		go func() {
-			for {
-				select {
-				case err := <-errChan:
+					errPayload, err := base.EncodePayload(common.Header_HEADER_ERROR, errorMsg)
 					if err != nil {
-						if errors.Is(err, utils.ErrFailedServerAuth) {
-							s.kickAndCloseClient(err1.ErrorMessage_ERROR_AUTH_FAILED, conn)
-						}
-						log.Println(err.Error())
+						conn.Close()
+						return
 					}
+
+					err = utils.TryWriteCtx(ctx, conn, errPayload)
+					if err != nil {
+						if errors.Is(err, io.EOF) {
+							log.Println("sprlmnl: client is closed")
+						} else {
+							log.Printf("write error: %v", err)
+						}
+					}
+
+					conn.Close()
+					log.Println("rejected client with server_full error")
+					return
 				}
-			}
-		}()
+
+				// Handle connection outside of mutex
+				if err := s.handleNewConn(ctx, conn); err != nil {
+					log.Printf("handle connection error: %v", err)
+					errChan <- err
+				}
+			}(conn)
+		}
+	}()
+
+	// Wait for and handle errors
+	select {
+	case err := <-errChan:
+		return err
+	case <-doneChan:
+		return nil
 	}
 }
 
@@ -126,18 +132,22 @@ func (s *session) kickAndCloseClient(errType err1.ErrorMessage_ErrorCode, conn n
 	}
 }
 
-func (s *session) handleNewConn(ctx context.Context, conn net.Conn, errChan chan<- error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// handleCtx, cancel := context.WithTimeout(ctx, MaxHandleTime)
-	// defer cancel()
+func (s *session) End() {
+	for k := range s.clients {
+		delete(s.clients, k)
+	}
+	s.listener.Close()
+}
 
+func (s *session) handleNewConn(ctx context.Context, conn net.Conn) error {
 	name, err := s.authenticateClient(ctx, conn)
 	if err != nil {
-		errChan <- err
-		return
+		s.kickAndCloseClient(err1.ErrorMessage_ERROR_AUTH_FAILED, conn)
+		return fmt.Errorf("authentication failed: %w", err)
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	newClient := createClient(name, conn, false)
 	s.clients[newClient.uuid] = newClient
 
@@ -145,23 +155,17 @@ func (s *session) handleNewConn(ctx context.Context, conn net.Conn, errChan chan
 	infoPayload := base.GenerateInfo(info.Info_INFO_AUTH_SUCCESS, "welcome to the session")
 	payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
 	if err != nil {
-		errChan <- err
-		return
+		return fmt.Errorf("failed to encode welcome payload: %w", err)
 	}
 
 	err = utils.TryWriteCtx(ctx, conn, payload)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
-			errChan <- err
-			return
+			return fmt.Errorf("client disconnected: %w", err)
 		}
-		return
+		return fmt.Errorf("failed to send welcome message: %w", err)
 	}
-}
 
-func (s *session) End() {
-	for k := range s.clients {
-		delete(s.clients, k)
-	}
-	s.listener.Close()
+	log.Println("hello client", newClient.uuid)
+	return nil
 }

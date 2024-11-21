@@ -38,7 +38,7 @@ func validateClientNum(in string) error {
 // TODO; remember to disable signal processing for bubbletea
 func main() {
 	if startServer {
-		session, err := backend.NewSession("hello", 1)
+		session, err := backend.NewSession("hello", 5)
 		if err != nil {
 			log.Fatal(err.Error())
 		}

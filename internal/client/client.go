@@ -76,7 +76,7 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 		for {
 			data, err := u.TryReadCtx(ctx, c.serverConn)
 			if err != nil {
-				if errors.Is(err, u.ErrServerClosed) {
+				if errors.Is(err, u.ErrConnectionClosed) {
 					log.Println("server has shutdown or not available")
 				}
 				if errors.Is(err, u.ErrCtxTimeOut) {

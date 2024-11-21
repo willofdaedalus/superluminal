@@ -16,10 +16,10 @@ func TestEncodeFunc(t *testing.T) {
 
 	// intentionally pass the wrong header type to the payload
 	// to trigger an ErrHeaderPayloadMismatch
-	_, err := EncodePayload(common.Header_HEADER_DATA_RESEND, errorMsg)
+	_, err := EncodePayload(common.Header_HEADER_RESEND_REQ, errorMsg)
 
 	// check to make sure we're not returning some other error
-	if !errors.Is(err, ErrHeaderPayloadMismatch) {
+	if !errors.Is(err, ErrPayloadHeaderMismatch) {
 		t.Fatalf("expected a mismatch; got %v", err)
 	}
 }

@@ -6,15 +6,18 @@ import "common.proto";
 import "error.proto";
 import "heartbeat.proto";
 import "term_content.proto";
+import "info.proto";
 
 message Payload {
     int32 version = 1;
     Header header = 2;
     uint64 timestamp = 3;
+
     oneof content {
         TerminalContent term_content = 4;
         Authentication auth = 5;
         Heartbeat heartbeat = 6;
         ErrorMessage error = 7;
+        Info info = 8;
     }
 }

@@ -3,6 +3,7 @@ package backend
 import (
 	"bytes"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -15,7 +16,7 @@ type sessionClient struct {
 	isOwner bool
 }
 
-type Session struct {
+type session struct {
 	Owner    string
 	maxConns uint8
 	pass     string
@@ -23,4 +24,5 @@ type Session struct {
 	clients  map[string]*sessionClient
 	listener net.Listener
 	reader   bytes.Reader
+	mu       sync.Mutex
 }

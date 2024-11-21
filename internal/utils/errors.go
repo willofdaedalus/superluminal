@@ -21,6 +21,8 @@ var (
 	ErrUnknownHeader        = errors.New("sprlmnl: unknown server header")
 )
 
+// payload related errors
 var (
-	ErrUnspecifiedPayload = errors.New("sprlmnl: payload is unspecified")
+	ErrUnspecifiedPayload    = errors.New("sprlmnl: payload is unspecified")
+	ErrPayloadHeaderMismatch = errors.New("header and payload type passed do not match")
 )

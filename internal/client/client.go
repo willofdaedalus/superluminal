@@ -23,19 +23,20 @@ const (
 type client struct {
 	TermContent chan string
 	name        string
-	pass        string
 	joined      time.Time
 	serverConn  net.Conn
 	exitChan    chan struct{}
+	sigChan     chan os.Signal
+	sentPass    bool
 }
 
-func New(name, pass string) *client {
+func New(name string) *client {
 	return &client{
 		name:        name,
 		joined:      time.Now(),
-		pass:        pass,
 		TermContent: make(chan string, 1),
 		exitChan:    make(chan struct{}, 1),
+		sigChan:     make(chan os.Signal, 1),
 	}
 }
 
@@ -68,46 +69,52 @@ func (c *client) cleanResources() {
 func (c *client) ListenForMessages(errChan chan<- error) {
 	ctx := context.Background()
 	defer c.cleanResources()
+	defer close(errChan) // Ensure error channel gets closed
 
+	messageHandler := make(chan error)
 	go func() {
-		defer func() {
-			c.exitChan <- struct{}{}
-		}()
-
 		for {
 			data, err := u.TryReadCtx(ctx, c.serverConn)
 			if err != nil {
 				if errors.Is(err, u.ErrServerClosed) {
 					log.Println("server has shutdown or not available")
 				}
-				errChan <- err
+				if errors.Is(err, u.ErrCtxTimeOut) {
+					log.Println("timed out waiting for server")
+					continue
+				}
+				messageHandler <- err
 				return
 			}
 
-			// data may never be nil but this a good check nonetheless
 			if data == nil {
-				errChan <- errors.New("sprlmnl: received an empty payload")
+				messageHandler <- errors.New("sprlmnl: received an empty payload")
 				return
 			}
 
-			if err := c.processPayload(data); err != nil {
-				errChan <- err
-				// maybe don't return too early??
+			if err := c.processPayload(ctx, data); err != nil {
+				messageHandler <- err
 				return
 			}
 		}
 	}()
 
-	for {
-		select {
-		case <-c.exitChan:
-			return
+	select {
+	case err := <-messageHandler:
+		if err != nil {
+			errChan <- err
 		}
+		fmt.Println("brrrr")
+		c.exitChan <- struct{}{}
+	case <-c.exitChan:
+		fmt.Println("brrrr (from exit)")
 	}
-
 }
 
-func (c *client) processPayload(data []byte) error {
+func (c *client) processPayload(ctx context.Context, data []byte) error {
+	procCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
 	payload, err := base.DecodePayload(data)
 	if err != nil {
 		return err
@@ -118,6 +125,19 @@ func (c *client) processPayload(data []byte) error {
 		errPayload, ok := payload.GetContent().(*base.Payload_Error)
 		if ok {
 			return c.handleErrPayload(*errPayload)
+		}
+
+	case common.Header_HEADER_AUTH:
+		// we only need to check its type but we won't use the actual payload
+		_, ok := payload.GetContent().(*base.Payload_Auth)
+		if ok {
+			return c.handleAuthPayload(procCtx)
+		}
+
+	case common.Header_HEADER_INFO:
+		infoPayload, ok := payload.GetContent().(*base.Payload_Info)
+		if ok {
+			return c.handleInfoPayload(*infoPayload)
 		}
 	}
 

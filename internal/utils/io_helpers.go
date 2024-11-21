@@ -14,11 +14,10 @@ import (
 )
 
 const (
-	// this is very generous and is half of the usual and original ctx that
-	// is passed from handleNewClient in server.go
-	MaxConnTime    = time.Second * 30
+	// MaxConnTime    = time.Second * 30
+	MaxConnTime    = time.Minute * 1
 	MaxBackoffTime = time.Second * 7
-	MaxTries       = 5
+	maxTries       = 5
 )
 
 type WriteStruct struct {
@@ -44,7 +43,7 @@ func TryWriteCtx(ctx context.Context, conn net.Conn, data []byte) error {
 	writeCtx, cancel := context.WithTimeout(ctx, MaxConnTime)
 	defer cancel()
 
-	for tries := 0; tries < MaxTries; tries++ {
+	for tries := 0; tries < maxTries; tries++ {
 		deadline, ok := writeCtx.Deadline()
 		if ok {
 			if err := conn.SetWriteDeadline(deadline); err != nil {
@@ -56,7 +55,7 @@ func TryWriteCtx(ctx context.Context, conn net.Conn, data []byte) error {
 			}
 		}
 
-		if tries == MaxTries-1 {
+		if tries == maxTries-1 {
 			return ErrFailedAfterRetries
 		}
 
@@ -98,30 +97,34 @@ func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 	var data bytes.Buffer
 	writeCtx, cancel := context.WithTimeout(ctx, MaxConnTime)
 	defer cancel()
-
 	buf := make([]byte, MaxPayloadSize)
-	for tries := 0; tries < MaxTries; tries++ {
+
+	for tries := 0; tries < maxTries; tries++ {
+		if tries == maxTries-1 {
+			return nil, ErrFailedAfterRetries
+		}
+
 		deadline, ok := writeCtx.Deadline()
 		if ok {
 			if err := conn.SetReadDeadline(deadline); err != nil {
 				if errors.Is(err, os.ErrDeadlineExceeded) {
 					return nil, ErrCtxTimeOut
 				}
-
 				return nil, ErrDeadlineUnsuccessful
 			}
 		}
 
-		if tries == MaxTries-1 {
-			return nil, ErrFailedAfterRetries
+		n, err := conn.Read(buf)
+		// Write any data we got before handling errors
+		if n > 0 {
+			data.Write(buf[:n])
+			fmt.Println("data len", len(data.Bytes()))
 		}
 
-		n, err := conn.Read(buf)
 		if err != nil {
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				return nil, ErrCtxTimeOut
 			}
-
 			if errors.Is(err, io.EOF) {
 				return nil, ErrServerClosed
 			}
@@ -138,12 +141,10 @@ func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 			}
 		}
 
-		// Successful read
-		data.Write(buf[:n])
+		// If we got here with no error, we have a complete read
 		conn.SetReadDeadline(time.Time{}) // Reset the deadline
 		return data.Bytes(), nil
 	}
-
 	return nil, ErrFailedAfterRetries
 }
 

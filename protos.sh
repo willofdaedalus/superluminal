@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Create necessary directories
-mkdir -p internal/payload/{auth,base,error,heartbeat,term}
+mkdir -p internal/payload/{auth,base,error,heartbeat,term,info}
 
 # First, create individual proto files in a protos directory
 mkdir -p protos

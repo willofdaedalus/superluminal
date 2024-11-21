@@ -19,7 +19,7 @@ func TestListenForMessage(t *testing.T) {
 	go session.Start()
 
 	errChan := make(chan error, 1)
-	c := New(name, "pass")
+	c := New(name)
 	if err := c.ConnectToSession(context.Background(), "localhost", "42024"); err != nil {
 		t.Fatal("failed to connect to a session")
 	}

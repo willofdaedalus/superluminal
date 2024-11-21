@@ -2,3 +2,5 @@ superluminal
 *.vhs
 *.gif
 hello*
+/*.toml
+/tmp/

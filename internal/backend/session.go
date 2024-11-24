@@ -105,7 +105,6 @@ func (s *session) Start() error {
 				}
 
 				if err := s.handleNewConn(ctx, conn); err != nil {
-					log.Printf("handle connection error: %v", err)
 					errChan <- err
 				}
 				errChan <- nil
@@ -113,7 +112,9 @@ func (s *session) Start() error {
 
 			select {
 			case err := <-errChan:
-				log.Println("err from client: ", err)
+				if err != nil {
+					log.Println("err from client: ", err)
+				}
 				continue
 			}
 		}

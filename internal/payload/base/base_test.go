@@ -5,6 +5,7 @@ import (
 	"testing"
 	"willofdaedalus/superluminal/internal/payload/common"
 	err1 "willofdaedalus/superluminal/internal/payload/error"
+	"willofdaedalus/superluminal/internal/utils"
 )
 
 func TestEncodeFunc(t *testing.T) {
@@ -19,7 +20,7 @@ func TestEncodeFunc(t *testing.T) {
 	_, err := EncodePayload(common.Header_HEADER_RESEND_REQ, errorMsg)
 
 	// check to make sure we're not returning some other error
-	if !errors.Is(err, ErrPayloadHeaderMismatch) {
+	if !errors.Is(err, utils.ErrPayloadHeaderMismatch) {
 		t.Fatalf("expected a mismatch; got %v", err)
 	}
 }

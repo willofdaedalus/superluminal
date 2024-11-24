@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"strconv"
 	"willofdaedalus/superluminal/internal/backend"
 	"willofdaedalus/superluminal/internal/client"
-	"willofdaedalus/superluminal/internal/utils"
 )
 
 var (
@@ -53,18 +51,17 @@ func main() {
 			log.Fatal(err.Error())
 		}
 
-		done := make(chan struct{})
 		go func() {
-			defer close(done)
 			client.ListenForMessages(errChan)
 		}()
 
 		// Handle errors and shutdown
 		for err := range errChan {
-			if errors.Is(err, utils.ErrServerFull) {
-				log.Fatal(err.Error())
-			}
+			// if errors.Is(err, utils.ErrServerFull) {
+			// 	log.Fatal(err.Error())
+			// }
+			log.Fatal(err)
+			break
 		}
-		<-done // Wait for client to fully shut down
 	}
 }

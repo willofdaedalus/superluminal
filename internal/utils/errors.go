@@ -5,7 +5,7 @@ import "errors"
 // server related errors
 var (
 	ErrCtxTimeOut       = errors.New("sprlmnl: context timed out")
-	ErrFailedServerAuth = errors.New("sprlmnl: couldn't send server auth to client")
+	ErrFailedServerAuth = errors.New("sprlmnl: client failed server auth")
 	ErrClientExchFailed = errors.New("sprlmnl: couldn't reach client after retries")
 	ErrConnectionClosed = errors.New("sprlmnl: connection closed on other side")
 	ErrWrongServer      = errors.New("sprlmnl: connected to non-superluminal server; exiting")
@@ -17,8 +17,10 @@ var (
 var (
 	ErrInvalidHeader        = errors.New("sprlmnl: invalid server header")
 	ErrDeadlineUnsuccessful = errors.New("sprlmnl: couldn't set deadline for operation")
+	ErrClientFailedAuth     = errors.New("sprlmnl: entered wrong passphrase")
 	ErrFailedAfterRetries   = errors.New("sprlmnl: couldn't send message after retries")
 	ErrUnknownHeader        = errors.New("sprlmnl: unknown server header")
+	ErrLongWait             = errors.New("sprlmnl: waited too long for input")
 )
 
 // payload related errors

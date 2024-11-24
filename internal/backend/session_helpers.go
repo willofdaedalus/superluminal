@@ -85,8 +85,11 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 		if utils.CheckPassphrase(s.hash, authResp.Response.GetPassphrase()) {
 			return authResp.Response.GetUsername(), nil
 		}
-		fmt.Println("wrong passphrase")
 	}
 
 	return "", utils.ErrFailedServerAuth
+}
+
+func (s *session) listenForMessages() {
+
 }

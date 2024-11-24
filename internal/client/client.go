@@ -8,8 +8,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
@@ -97,32 +95,23 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 
 			if err := c.processPayload(ctx, data); err != nil {
 				// TODO: in the future reconnect when necessary so to ensure a smooth UX
-				// if errors.Is(err, utils.ErrCtxTimeOut) {
-				// 	log.Println("you waited too long to connect")
-				// 	continue
+				// if errors.Is(err, u.ErrCtxTimeOut) {
+				// 	messageHandler <- u.ErrLongWait
+				// 	return
 				// }
-
-				if errors.Is(err, u.ErrCtxTimeOut) {
-					messageHandler <- fmt.Errorf("you waited too long to enter a passphrase")
-					continue
-				}
 
 				messageHandler <- err
 				return
 			}
+			fmt.Println("waiting...")
 		}
 	}()
 
 	select {
 	case err := <-messageHandler:
-		if err != nil {
-			errChan <- err
-		}
-		fmt.Println("brrrr")
-		c.exitChan <- struct{}{}
-	case <-c.exitChan:
-		fmt.Println("brrrr (from exit)")
-		cancelMain()
+		// we'll always send a non-nil error so no need to check
+		errChan <- err
+		return
 	}
 }
 
@@ -154,129 +143,4 @@ func (c *client) processPayload(ctx context.Context, data []byte) error {
 	}
 
 	return u.ErrUnspecifiedPayload
-}
-
-type Client struct {
-	Name             string
-	PassUsed         string
-	Conn, serverConn net.Conn
-	shutdownChan     chan struct{}
-	sigChan          chan os.Signal
-	signals          []os.Signal
-}
-
-func CreateClient(name, pass string) *Client {
-	return &Client{
-		Name:         name,
-		PassUsed:     pass,
-		shutdownChan: make(chan struct{}, 1),
-		sigChan:      make(chan os.Signal, 1),
-	}
-}
-
-func (c *Client) ConnectToServer(host, port string) error {
-	buf := make([]byte, 1024)
-	errChan := make(chan error)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	// to get the dialwithctx func
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, port))
-	if err != nil {
-		return err
-	}
-	c.serverConn = conn
-
-	// Create a channel to listen for signals
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Start the signal handling goroutine
-	go func() {
-		select {
-		case <-sigChan:
-			// received a signal, cancel the context and return from the function
-			cancel()
-			errChan <- fmt.Errorf("received signal, exiting ConnectToServer")
-		case <-ctx.Done():
-			// Context was canceled, likely due to an error in the read loop
-			errChan <- ctx.Err()
-		}
-	}()
-
-	go c.handleSignals()
-	go func() {
-		for {
-			buf, err = u.TryRead(ctx, c.serverConn, maxConnTries)
-			if err != nil {
-				// we assume we couldn't read from the server after many retries
-				cancel()
-				errChan <- err
-				return
-			}
-			hdrType, hdrMsg, message, err := u.ParseIncomingMsg(buf)
-			if err != nil {
-				log.Println(err)
-				errChan <- err
-				return
-			}
-			c.doActionWithMsg(ctx, hdrType, hdrMsg, message)
-		}
-	}()
-
-	// wait for either a signal or an error from the read loop
-	return <-errChan
-}
-
-func (c *Client) doActionWithMsg(ctx context.Context, hdrVal, hdrMsg int, msg []byte) error {
-	switch hdrVal {
-	case u.HdrInfoVal:
-		return c.fulfillInfoReq(ctx, hdrMsg)
-	case u.HdrErrVal:
-		return c.fulfillErrReq(ctx, hdrMsg)
-	case u.HdrAckVal:
-		return c.fulfillAckReq(ctx, hdrMsg)
-	}
-
-	// FIXME
-	// why is that FIXME there??
-	return nil
-}
-
-func (c *Client) handleSignals() {
-	signals := []os.Signal{syscall.SIGINT, syscall.SIGKILL}
-	signal.Notify(c.sigChan, signals...)
-
-	for {
-		select {
-		case <-c.sigChan:
-			c.startCleanup(context.Background())
-			return
-		}
-	}
-
-}
-
-func (c *Client) startCleanup(ctx context.Context) {
-	cleanCtx, cancel := context.WithTimeout(ctx, time.Second*30)
-	defer cancel()
-
-	u.TryWrite(cleanCtx, &u.WriteStruct{
-		Conn:     c.serverConn,
-		MaxTries: 3,
-		HdrVal:   u.HdrAckVal,
-		HdrMsg:   u.AckClientShutdown,
-	})
-
-	// don't read anything from the server
-	// serverResp, err := u.TryRead(cleanCtx, c.serverConn, maxConnTries)
-	// if err != nil {
-	// 	if error.Is(err, io.EOF) {
-	// 		// server already shutdown
-	// 		return
-	// 	}
-
-	// 	c.serverConn.Close()
-	// }
-	c.serverConn.Close()
 }

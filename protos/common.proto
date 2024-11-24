@@ -1,19 +1,6 @@
 syntax = "proto3";
 option go_package = "willofdaedalus/superluminal/internal/payload/common";
 
-// enum Header {
-//     HEADER_UNSPECIFIED = 0;
-//     HEADER_AUTH_REQUEST = 1;
-//     HEADER_AUTH_RESPONSE = 2;
-//     HEADER_TYPE_SERVER_SHUTDOWN = 3;
-//     HEADER_CLIENT_SHUTDOWN = 4;
-//     HEADER_HEARTBEAT_REQUEST = 5;
-//     HEADER_HEARTBEAT_RESPONSE = 6;
-//     HEADER_TERMINAL_DATA = 7;
-//     HEADER_DATA_RESEND = 8;
-//     HEADER_ERROR = 9;
-// }
-
 enum Header {
     HEADER_UNSPECIFIED = 0;
     HEADER_AUTH = 1;

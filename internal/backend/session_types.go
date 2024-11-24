@@ -17,12 +17,14 @@ type sessionClient struct {
 }
 
 type session struct {
-	Owner    string
-	maxConns uint8
-	pass     string
-	hash     string
-	clients  map[string]*sessionClient
-	listener net.Listener
-	reader   bytes.Reader
-	mu       sync.Mutex
+	Owner         string
+	maxConns      uint8
+	pass          string
+	hash          string
+	clients       map[string]*sessionClient
+	listener      net.Listener
+	reader        bytes.Reader
+	mu            sync.Mutex
+	passRegenTime time.Duration
+	heartbeatTime time.Duration
 }

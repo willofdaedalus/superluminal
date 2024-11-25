@@ -65,14 +65,17 @@ func (s *session) Start() error {
 	errChan := make(chan error, 1)
 	doneChan := make(chan struct{})
 
-	for range time.Tick(s.passRegenTime) {
-		s.pass, s.hash, _ = genPassAndHash(debugPassCount)
-		fmt.Println(s.pass)
-	}
+	// generate a random passphrase
+	go func() {
+		for range time.Tick(s.passRegenTime) {
+			s.pass, s.hash, _ = genPassAndHash(debugPassCount)
+			fmt.Println(s.pass)
+		}
+	}()
 
 	go s.listen(ctx, doneChan, errChan)
 
-	// Wait for and handle errors
+	// wait for and handle errors
 	select {
 	case <-doneChan:
 		return nil
@@ -91,6 +94,7 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 
 		// Use a buffered channel to manage concurrency
 		go func(conn net.Conn) {
+			fmt.Println("new connection...")
 			if len(s.clients) >= int(s.maxConns) {
 				errorMsg := base.GenerateError(
 					err1.ErrorMessage_ERROR_SERVER_FULL,

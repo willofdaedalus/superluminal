@@ -8,6 +8,9 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
@@ -15,16 +18,19 @@ import (
 	"willofdaedalus/superluminal/internal/utils"
 
 	err1 "willofdaedalus/superluminal/internal/payload/error"
+
+	"golang.org/x/sync/errgroup"
 )
 
 const (
 	debugPassCount = 1
-	MaxAuthChances = 3
+	maxAuthChances = 3
 
-	heartbeatTimeout  = time.Second * 30
-	clientKickTimeout = time.Second * 30
-	maxHandleTime     = time.Minute * 1
-	passRegenTimeout  = time.Minute * 5
+	heartbeatTimeout      = time.Second * 30
+	clientKickTimeout     = time.Second * 30
+	maxHandleTime         = time.Minute * 1
+	passRegenTimeout      = time.Minute * 5
+	serverShutdownTimeout = time.Minute * 1
 )
 
 func NewSession(owner string, maxConns uint8) (*session, error) {
@@ -45,6 +51,8 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 	master := createClient(owner, nil, true)
 	clients[master.uuid] = master
 
+	signals := []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT}
+
 	return &session{
 		Owner:         owner,
 		maxConns:      maxConns + 1,
@@ -55,39 +63,60 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 		reader:        reader,
 		heartbeatTime: heartbeatTimeout,
 		passRegenTime: passRegenTimeout,
+		signals:       signals,
 	}, nil
 }
 
 func (s *session) Start() error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	// our shutdown can come from a signal for instance
+	ctx, cancel := signal.NotifyContext(context.Background(), s.signals...)
 	errChan := make(chan error, 1)
 	doneChan := make(chan struct{})
 
-	// generate a random passphrase
-	go func() {
-		for range time.Tick(s.passRegenTime) {
-			s.pass, s.hash, _ = genPassAndHash(debugPassCount)
-			fmt.Println(s.pass)
-		}
+	defer func() {
+		defer cancel()
+		// defer close(doneChan)
+		defer close(errChan)
 	}()
 
+	go s.regenPassLoop(ctx)
 	go s.listen(ctx, doneChan, errChan)
 
 	// wait for and handle errors
 	select {
+	case err := <-errChan:
+		log.Printf("server err: %v", err)
+		if err != nil {
+			fmt.Println("exiting by err chan...")
+			return err
+		}
 	case <-doneChan:
+		fmt.Println("exiting by done chan...")
 		return nil
+	case <-ctx.Done():
+		fmt.Println("exiting by context done...")
+		return s.End()
 	}
+
+	return nil
 }
 
 func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan chan error) {
 	log.Println("server started...")
 	defer close(doneChan)
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		conn, err := s.listener.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+
 			errChan <- fmt.Errorf("accept error: %w", err)
 			return
 		}
@@ -96,6 +125,9 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 		go func(conn net.Conn) {
 			fmt.Println("new connection...")
 			if len(s.clients) >= int(s.maxConns) {
+				tempCtx, tempCancel := context.WithTimeout(ctx, clientKickTimeout)
+				defer tempCancel()
+
 				errorMsg := base.GenerateError(
 					err1.ErrorMessage_ERROR_SERVER_FULL,
 					[]byte("server_full"),
@@ -109,9 +141,7 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 				}
 
 				// need a minute to write to the client; if it's not possible don't bother
-				tempCtx, tempCancel := context.WithTimeout(ctx, clientKickTimeout)
 				err = utils.TryWriteCtx(tempCtx, conn, errPayload)
-				tempCancel()
 				if err != nil {
 					if errors.Is(err, io.EOF) {
 						log.Println("sprlmnl: client is closed")
@@ -127,19 +157,10 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 
 			if err := s.handleNewConn(ctx, conn); err != nil {
 				errChan <- err
+				return
 			}
-			errChan <- nil
 		}(conn)
-
-		select {
-		case err := <-errChan:
-			if err != nil {
-				log.Println("err from client: ", err)
-			}
-			continue
-		}
 	}
-
 }
 
 func (s *session) kickAndCloseClient(ctx context.Context, errType err1.ErrorMessage_ErrorCode, conn net.Conn) {
@@ -161,11 +182,51 @@ func (s *session) kickAndCloseClient(ctx context.Context, errType err1.ErrorMess
 	}
 }
 
-func (s *session) End() {
-	for k := range s.clients {
-		delete(s.clients, k)
+func (s *session) End() error {
+	log.Println("server is shutting down...")
+
+	if len(s.clients) > 1 {
+		ctx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+		defer cancel()
+
+		group, gCtx := errgroup.WithContext(ctx)
+		group.SetLimit(len(s.clients))
+
+		// prevent unwanted new connections
+		s.listener.Close()
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, client := range s.clients {
+			// skip closing the owner otherwise it panics
+			// this is because the owner doesn't have any conn to it
+			if client.isOwner {
+				continue
+			}
+			group.Go(func() error {
+				// tell client server is shutting down
+				// TODO; maybe prompt the user before shutting down on their end
+				infoPayload := base.GenerateInfo(info.Info_INFO_SHUTDOWN, "server shutting down")
+				payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
+				if err != nil {
+					return err
+				}
+				err = utils.TryWriteCtx(gCtx, client.conn, payload)
+				if err != nil {
+					if !(errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF)) {
+						return err
+					}
+				}
+
+				client.conn.Close()
+				return nil
+			})
+		}
+
+		return group.Wait()
 	}
-	s.listener.Close()
+
+	return nil
 }
 
 func (s *session) handleNewConn(ctx context.Context, conn net.Conn) error {
@@ -176,9 +237,9 @@ func (s *session) handleNewConn(ctx context.Context, conn net.Conn) error {
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	newClient := createClient(name, conn, false)
 	s.clients[newClient.uuid] = newClient
+	s.mu.Unlock()
 
 	// send a congratulatory message to the client
 	infoPayload := base.GenerateInfo(info.Info_INFO_AUTH_SUCCESS, "welcome to the session")

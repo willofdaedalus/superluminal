@@ -3,6 +3,7 @@ package backend
 import (
 	"bytes"
 	"net"
+	"os"
 	"sync"
 	"time"
 )
@@ -23,6 +24,7 @@ type session struct {
 	hash          string
 	clients       map[string]*sessionClient
 	listener      net.Listener
+	signals       []os.Signal
 	reader        bytes.Reader
 	mu            sync.Mutex
 	passRegenTime time.Duration

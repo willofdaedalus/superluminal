@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 	"willofdaedalus/superluminal/internal/payload/auth"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
@@ -43,7 +44,7 @@ func (s *session) authenticateClient(ctx context.Context, conn net.Conn) (string
 }
 
 func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, authPayload []byte) (string, error) {
-	for try := 0; try < MaxAuthChances; try++ {
+	for try := 0; try < maxAuthChances; try++ {
 		log.Println("try no", try)
 
 		tempCtx, cancel := context.WithTimeout(ctx, clientKickTimeout)
@@ -90,6 +91,18 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 	return "", utils.ErrFailedServerAuth
 }
 
-func (s *session) listenForMessages() {
+// generate a random passphrase
+func (s *session) regenPassLoop(ctx context.Context) {
+	ticker := time.NewTicker(s.passRegenTime)
+	defer ticker.Stop()
 
+	for {
+		select {
+		case <-ticker.C:
+			s.pass, s.hash, _ = genPassAndHash(debugPassCount)
+			fmt.Println(s.pass)
+		case <-ctx.Done():
+			return
+		}
+	}
 }

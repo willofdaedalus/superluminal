@@ -42,7 +42,7 @@ func New(name string) *client {
 		sentPass:    false,
 		isApproved:  false,
 		serverConn:  nil,
-		tracker:     utils.NewTracker(),
+		tracker:     utils.NewSyncTracker(),
 	}
 }
 

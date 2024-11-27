@@ -7,6 +7,7 @@ import (
 	"willofdaedalus/superluminal/internal/payload/auth"
 	"willofdaedalus/superluminal/internal/payload/common"
 	err1 "willofdaedalus/superluminal/internal/payload/error"
+	"willofdaedalus/superluminal/internal/payload/heartbeat"
 	"willofdaedalus/superluminal/internal/payload/info"
 	"willofdaedalus/superluminal/internal/payload/term"
 	"willofdaedalus/superluminal/internal/utils"
@@ -148,6 +149,24 @@ func GenerateTermContent(msgId string, msgLen int32, data []byte) Payload_TermCo
 			MessageLength: uint32(len(data)),
 			Data:          data,
 			Crc32:         crc32.ChecksumIEEE(data),
+		},
+	}
+}
+
+func GenerateHeartbeatReq() Payload_Heartbeat {
+	return Payload_Heartbeat{
+		Heartbeat: &heartbeat.Heartbeat{
+			Type:    heartbeat.Heartbeat_HEARTBEAT_TYPE_PING,
+			Payload: "ping",
+		},
+	}
+}
+
+func GenerateHeartbeatResp() Payload_Heartbeat {
+	return Payload_Heartbeat{
+		Heartbeat: &heartbeat.Heartbeat{
+			Type:    heartbeat.Heartbeat_HEARTBEAT_TYPE_PONG,
+			Payload: "pong",
 		},
 	}
 }

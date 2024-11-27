@@ -65,7 +65,7 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 		heartbeatTime: heartbeatTimeout,
 		passRegenTime: passRegenTimeout,
 		signals:       signals,
-		tracker:       utils.NewTracker(),
+		tracker:       utils.NewSyncTracker(),
 	}, nil
 }
 

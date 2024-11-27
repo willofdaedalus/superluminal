@@ -9,7 +9,7 @@ type SyncTracker struct {
 	activeReads  int64
 }
 
-func NewTracker() *SyncTracker {
+func NewSyncTracker() *SyncTracker {
 	return &SyncTracker{
 		activeWrites: 0,
 		activeReads:  0,

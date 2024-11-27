@@ -60,7 +60,7 @@ func main() {
 			// if errors.Is(err, utils.ErrServerFull) {
 			// 	log.Fatal(err.Error())
 			// }
-			log.Fatal(err)
+			log.Println(err)
 			break
 		}
 	}

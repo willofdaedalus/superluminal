@@ -55,7 +55,7 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 			return "", err
 		}
 
-		clientResp, err := utils.TryReadCtx(ctx, conn)
+		clientResp, err := s.readFromClient(ctx, conn)
 		if err != nil {
 			if errors.Is(err, utils.ErrCtxTimeOut) {
 				continue
@@ -105,4 +105,20 @@ func (s *session) regenPassLoop(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// writeToClient provides a way to synchronize writes across the server
+func (s *session) writeToClient(ctx context.Context, conn net.Conn, data []byte) error {
+	s.tracker.IncrementWrite()
+	defer s.tracker.DecrementWrite()
+
+	return utils.TryWriteCtx(ctx, conn, data)
+}
+
+// readFromClient provides a way to synchronize reads across the server
+func (s *session) readFromClient(ctx context.Context, conn net.Conn) ([]byte, error) {
+	s.tracker.IncrementRead()
+	defer s.tracker.DecrementRead()
+
+	return utils.TryReadCtx(ctx, conn)
 }

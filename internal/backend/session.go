@@ -15,7 +15,6 @@ import (
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
 	"willofdaedalus/superluminal/internal/payload/info"
-	"willofdaedalus/superluminal/internal/utils"
 
 	err1 "willofdaedalus/superluminal/internal/payload/error"
 
@@ -25,6 +24,7 @@ import (
 const (
 	debugPassCount = 1
 	maxAuthChances = 3
+	maxTries       = 3
 
 	heartbeatTimeout      = time.Second * 30
 	clientKickTimeout     = time.Second * 30
@@ -141,7 +141,7 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 				}
 
 				// need a minute to write to the client; if it's not possible don't bother
-				err = utils.TryWriteCtx(tempCtx, conn, errPayload)
+				err = s.writeToClient(tempCtx, conn, errPayload)
 				if err != nil {
 					if errors.Is(err, io.EOF) {
 						log.Println("sprlmnl: client is closed")
@@ -176,53 +176,74 @@ func (s *session) kickAndCloseClient(ctx context.Context, errType err1.ErrorMess
 		return
 	}
 
-	err = utils.TryWriteCtx(kickCtx, conn, payload)
+	err = s.writeToClient(kickCtx, conn, payload)
 	if err != nil {
 		return
 	}
 }
 
+// End sends a message to all connected clients about the shutdown and then
+// proceeds to shutdown.
+// with the current implementation, End doesn't wait for a departing message
+// from each client before shutting down
 func (s *session) End() error {
+	ctx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+	defer cancel()
 	log.Println("server is shutting down...")
 
-	if len(s.clients) > 1 {
-		ctx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
-		defer cancel()
+	// prevent new connections
+	s.listener.Close()
 
+	// wait for active operations to complete
+	for i := 0; i < maxTries; i++ {
+		if !s.tracker.AnyActionInProgress() {
+			break
+		}
+		select {
+		case <-time.After(time.Second * 5):
+			continue
+		case <-ctx.Done():
+			log.Println("Shutdown timeout reached before active operations completed")
+			break
+		}
+	}
+
+	// notify and close clients
+	if len(s.clients) > 1 {
 		group, gCtx := errgroup.WithContext(ctx)
 		group.SetLimit(len(s.clients))
 
-		// prevent unwanted new connections
-		s.listener.Close()
-
 		s.mu.Lock()
 		defer s.mu.Unlock()
+
 		for _, client := range s.clients {
-			// skip closing the owner otherwise it panics
-			// this is because the owner doesn't have any conn to it
 			if client.isOwner {
 				continue
 			}
+
+			client := client // capture loop variable
 			group.Go(func() error {
-				// tell client server is shutting down
-				// TODO; maybe prompt the user before shutting down on their end
-				infoPayload := base.GenerateInfo(info.Info_INFO_SHUTDOWN, "server shutting down")
+				// Prepare shutdown notification
+				infoPayload := base.GenerateInfo(info.Info_INFO_SHUTDOWN, "Server is shutting down")
 				payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
 				if err != nil {
 					return err
 				}
-				err = utils.TryWriteCtx(gCtx, client.conn, payload)
-				if err != nil {
-					if !(errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF)) {
-						return err
-					}
+
+				// attempt to send shutdown message
+				err = s.writeToClient(gCtx, client.conn, payload)
+				if err != nil &&
+					!errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) {
+					log.Printf("Error sending shutdown message to client: %v", err)
 				}
 
+				// ensure connection is closed
 				client.conn.Close()
 				return nil
 			})
 		}
 
+		// wait for all client shutdown attempts
 		return group.Wait()
 	}
 
@@ -248,7 +269,7 @@ func (s *session) handleNewConn(ctx context.Context, conn net.Conn) error {
 		return fmt.Errorf("failed to encode welcome payload: %w", err)
 	}
 
-	err = utils.TryWriteCtx(ctx, conn, payload)
+	err = s.writeToClient(ctx, conn, payload)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			return fmt.Errorf("client disconnected: %w", err)

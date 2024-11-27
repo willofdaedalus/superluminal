@@ -6,6 +6,7 @@ import (
 	"os"
 	"sync"
 	"time"
+	"willofdaedalus/superluminal/internal/utils"
 )
 
 type sessionClient struct {
@@ -27,6 +28,7 @@ type session struct {
 	signals       []os.Signal
 	reader        bytes.Reader
 	mu            sync.Mutex
+	tracker       *utils.SyncTracker
 	passRegenTime time.Duration
 	heartbeatTime time.Duration
 }

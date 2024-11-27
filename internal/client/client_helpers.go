@@ -19,8 +19,9 @@ import (
 
 const (
 	//passEntryTimeout = time.Minute * 2
-	passEntryTimeout = time.Second * 5
-	cleanupTime      = time.Second * 30
+	passEntryTimeout   = time.Second * 5
+	cleanupTime        = time.Second * 30
+	serverShutdownTime = time.Second * 20
 )
 
 func (c *client) handleErrPayload(payload base.Payload_Error) error {
@@ -76,12 +77,12 @@ func (c *client) handleAuthPayload(ctx context.Context) error {
 	}
 
 	authResp := base.GenerateAuthResp(c.name, pass)
-	resp, err := base.EncodePayload(common.Header_HEADER_AUTH, authResp)
+	payload, err := base.EncodePayload(common.Header_HEADER_AUTH, authResp)
 	if err != nil {
 		return err
 	}
 
-	if err := utils.TryWriteCtx(authCtx, c.serverConn, resp); err != nil {
+	if err := c.writeToServer(authCtx, payload); err != nil {
 		return err
 	}
 
@@ -89,15 +90,105 @@ func (c *client) handleAuthPayload(ctx context.Context) error {
 	return nil
 }
 
-func (c *client) handleInfoPayload(payload base.Payload_Info) error {
+func (c *client) handleHeartbeatPayload() error {
+	return nil
+}
+
+func (c *client) handleInfoPayload(ctx context.Context, payload base.Payload_Info) error {
 	switch payload.Info.GetInfoType() {
 	case info.Info_INFO_AUTH_SUCCESS:
 		log.Println(payload.Info.GetMessage())
 		c.isApproved = true
 		return nil
+
+	case info.Info_INFO_SHUTDOWN:
+		c.handleServerShutdown(ctx)
+		// c.exitChan <- struct{}{}
+		log.Println(payload.Info.GetMessage())
+		os.Exit(0)
+		return nil
 	}
 
 	return utils.ErrUnspecifiedPayload
+}
+
+func (c *client) handleServerShutdown(ctx context.Context) error {
+	shutCtx, cancel := context.WithTimeout(ctx, serverShutdownTime)
+	defer func() {
+		c.serverConn.Close()
+		cancel()
+	}()
+
+	// wait for a short duration for actions to complete
+	for i := 0; i < maxConnTries; i++ {
+		if !c.tracker.AnyActionInProgress() {
+			break
+		}
+		select {
+		case <-time.After(time.Second * 5):
+			continue
+		case <-shutCtx.Done(): // this might not be necessary
+			return ctx.Err()
+		}
+	}
+
+	// If actions still in progress, force close
+	if c.tracker.AnyActionInProgress() {
+		log.Println("Forcing connection close due to ongoing actions")
+	}
+
+	return nil
+}
+
+func (c *client) Cleanup() {
+	// Stop signal handling
+	if c.sigChan != nil {
+		signal.Stop(c.sigChan)
+		close(c.sigChan)
+	}
+
+	// Close exit channel to signal all goroutines to stop
+	if c.exitChan != nil {
+		close(c.exitChan)
+	}
+
+	// Wait for any ongoing actions to complete
+	for i := 0; i < maxConnTries; i++ {
+		if !c.tracker.AnyActionInProgress() {
+			break
+		}
+		time.Sleep(time.Second * 1)
+	}
+
+	// Close server connection
+	if c.serverConn != nil {
+		c.serverConn.Close()
+	}
+
+	// Clear terminal content channel
+	c.clearTermContent()
+
+	// Optional: Log cleanup
+	log.Printf("Client %s cleaned up", c.name)
+}
+
+// Helper method to clear terminal content channel
+func (c *client) clearTermContent() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Drain the channel if it's not nil
+	if c.TermContent != nil {
+		for {
+			select {
+			case <-c.TermContent:
+				// Keep draining
+			default:
+				// Channel is empty
+				return
+			}
+		}
+	}
 }
 
 func (c *client) startCleanup(ctx context.Context) {
@@ -118,7 +209,7 @@ func (c *client) startCleanup(ctx context.Context) {
 			return
 		}
 
-		err = utils.TryWriteCtx(cleanCtx, c.serverConn, payload)
+		err = c.writeToServer(cleanCtx, payload)
 		if err != nil {
 			// server is already shutdown
 			// if errors.Is(err, io.EOF) {
@@ -144,4 +235,20 @@ func (c *client) handleSignals() {
 			return
 		}
 	}
+}
+
+// writeToServer provides a way to synchronize writes across the entire backend
+func (c *client) writeToServer(ctx context.Context, data []byte) error {
+	c.tracker.IncrementWrite()
+	defer c.tracker.DecrementWrite()
+
+	return utils.TryWriteCtx(ctx, c.serverConn, data)
+}
+
+// readFromServer provides a way to synchronize reads across the client
+func (c *client) readFromServer(ctx context.Context) ([]byte, error) {
+	c.tracker.IncrementRead()
+	defer c.tracker.DecrementRead()
+
+	return utils.TryReadCtx(ctx, c.serverConn)
 }

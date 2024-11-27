@@ -8,10 +8,11 @@ import (
 	"log"
 	"net"
 	"os"
+	"sync"
 	"time"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
-	u "willofdaedalus/superluminal/internal/utils"
+	"willofdaedalus/superluminal/internal/utils"
 )
 
 const (
@@ -27,6 +28,8 @@ type client struct {
 	sigChan     chan os.Signal
 	sentPass    bool
 	isApproved  bool
+	mu          sync.Mutex
+	tracker     *utils.SyncTracker
 }
 
 func New(name string) *client {
@@ -36,6 +39,10 @@ func New(name string) *client {
 		TermContent: make(chan string, 1),
 		exitChan:    make(chan struct{}, 1),
 		sigChan:     make(chan os.Signal, 1),
+		sentPass:    false,
+		isApproved:  false,
+		serverConn:  nil,
+		tracker:     utils.NewTracker(),
 	}
 }
 
@@ -73,12 +80,12 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 	messageHandler := make(chan error)
 	go func() {
 		for {
-			data, err := u.TryReadCtx(ctx, c.serverConn)
+			data, err := c.readFromServer(ctx)
 			if err != nil {
-				if errors.Is(err, u.ErrConnectionClosed) {
+				if errors.Is(err, utils.ErrConnectionClosed) {
 					log.Println("server has shutdown or not available")
 				}
-				if errors.Is(err, u.ErrCtxTimeOut) {
+				if errors.Is(err, utils.ErrCtxTimeOut) {
 					log.Println("timed out waiting for server")
 					continue
 				}
@@ -138,9 +145,15 @@ func (c *client) processPayload(ctx context.Context, data []byte) error {
 	case common.Header_HEADER_INFO:
 		infoPayload, ok := payload.GetContent().(*base.Payload_Info)
 		if ok {
-			return c.handleInfoPayload(*infoPayload)
+			return c.handleInfoPayload(ctx, *infoPayload)
+		}
+
+	case common.Header_HEADER_HEARTBEAT:
+		_, ok := payload.GetContent().(*base.Payload_Heartbeat)
+		if ok {
+			return c.handleHeartbeatPayload()
 		}
 	}
 
-	return u.ErrUnspecifiedPayload
+	return utils.ErrUnspecifiedPayload
 }

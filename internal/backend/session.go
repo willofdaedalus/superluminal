@@ -15,6 +15,7 @@ import (
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
 	"willofdaedalus/superluminal/internal/payload/info"
+	"willofdaedalus/superluminal/internal/utils"
 
 	err1 "willofdaedalus/superluminal/internal/payload/error"
 
@@ -64,6 +65,7 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 		heartbeatTime: heartbeatTimeout,
 		passRegenTime: passRegenTimeout,
 		signals:       signals,
+		tracker:       utils.NewTracker(),
 	}, nil
 }
 

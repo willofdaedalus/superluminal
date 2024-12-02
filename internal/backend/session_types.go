@@ -6,8 +6,11 @@ import (
 	"os"
 	"sync"
 	"time"
+	"willofdaedalus/superluminal/internal/pipeline"
 	"willofdaedalus/superluminal/internal/utils"
 )
+
+type errMessage [2]string
 
 type sessionClient struct {
 	name    string
@@ -24,6 +27,7 @@ type session struct {
 	pass          string
 	hash          string
 	clients       map[string]*sessionClient
+	pipeline      *pipeline.Pipeline
 	listener      net.Listener
 	signals       []os.Signal
 	reader        bytes.Reader

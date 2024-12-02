@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -110,7 +109,6 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 				messageHandler <- err
 				return
 			}
-			fmt.Println("waiting...")
 		}
 	}()
 
@@ -146,6 +144,12 @@ func (c *client) processPayload(ctx context.Context, data []byte) error {
 		infoPayload, ok := payload.GetContent().(*base.Payload_Info)
 		if ok {
 			return c.handleInfoPayload(ctx, *infoPayload)
+		}
+
+	case common.Header_HEADER_TERMINAL_DATA:
+		termPayload, ok := payload.GetContent().(*base.Payload_TermContent)
+		if ok {
+			return c.handleTermPayload(*termPayload)
 		}
 
 	case common.Header_HEADER_HEARTBEAT:

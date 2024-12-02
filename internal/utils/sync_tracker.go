@@ -43,6 +43,8 @@ func (s *SyncTracker) HasReads() bool {
 }
 
 // combined tracking methods
+// probably shouldn't be here but remember to check that there's nothing
+// in both server and client's respective queues
 func (s *SyncTracker) AnyActionInProgress() bool {
 	return s.HasWrites() || s.HasReads()
 }

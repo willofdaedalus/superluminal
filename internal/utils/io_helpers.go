@@ -122,7 +122,6 @@ func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 		// Write any data we got before handling errors
 		if n > 0 {
 			data.Write(buf[:n])
-			fmt.Println("data len", len(data.Bytes()))
 		}
 
 		if err != nil {

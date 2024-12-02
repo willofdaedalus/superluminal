@@ -15,6 +15,7 @@ import (
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
 	"willofdaedalus/superluminal/internal/payload/info"
+	"willofdaedalus/superluminal/internal/pipeline"
 	"willofdaedalus/superluminal/internal/utils"
 
 	err1 "willofdaedalus/superluminal/internal/payload/error"
@@ -43,6 +44,11 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 		return nil, err
 	}
 
+	p, err := pipeline.NewPipeline(maxConns)
+	if err != nil {
+		return nil, err
+	}
+
 	pass, hash, err := genPassAndHash(debugPassCount)
 	if err != nil {
 		return nil, err
@@ -61,6 +67,7 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 		listener:      listener,
 		pass:          pass,
 		hash:          hash,
+		pipeline:      p,
 		reader:        reader,
 		heartbeatTime: heartbeatTimeout,
 		passRegenTime: passRegenTimeout,
@@ -76,11 +83,14 @@ func (s *session) Start() error {
 	doneChan := make(chan struct{})
 
 	defer func() {
-		defer cancel()
+		s.pipeline.Close()
+		cancel()
 		// defer close(doneChan)
-		defer close(errChan)
+		close(errChan)
 	}()
 
+	go s.pipeline.ReadStdin()
+	go s.pipeline.Start()
 	go s.regenPassLoop(ctx)
 	go s.listen(ctx, doneChan, errChan)
 
@@ -165,14 +175,15 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 	}
 }
 
-func (s *session) kickAndCloseClient(ctx context.Context, errType err1.ErrorMessage_ErrorCode, conn net.Conn) {
+func (s *session) kickAndCloseClient(
+	ctx context.Context, conn net.Conn, errType err1.ErrorMessage_ErrorCode, details []string) {
 	kickCtx, cancel := context.WithTimeout(ctx, clientKickTimeout)
 	defer func() {
 		cancel()
 		conn.Close()
 	}()
 
-	errPayload := base.GenerateError(errType, []byte("failed_auth"), []byte("failed to authenticate with session"))
+	errPayload := base.GenerateError(errType, []byte(details[0]), []byte(details[1]))
 	payload, err := base.EncodePayload(common.Header_HEADER_ERROR, errPayload)
 	if err != nil {
 		return
@@ -240,7 +251,9 @@ func (s *session) End() error {
 				}
 
 				// ensure connection is closed
+				s.pipeline.Unsubscribe(client.conn)
 				client.conn.Close()
+				delete(s.clients, client.uuid)
 				return nil
 			})
 		}
@@ -255,13 +268,15 @@ func (s *session) End() error {
 func (s *session) handleNewConn(ctx context.Context, conn net.Conn) error {
 	name, err := s.authenticateClient(ctx, conn)
 	if err != nil {
-		s.kickAndCloseClient(ctx, err1.ErrorMessage_ERROR_AUTH_FAILED, conn)
+		s.kickAndCloseClient(ctx, conn, err1.ErrorMessage_ERROR_AUTH_FAILED, []string{"failed_auth", "couldn't pass auth"})
 		return err
 	}
 
 	s.mu.Lock()
 	newClient := createClient(name, conn, false)
 	s.clients[newClient.uuid] = newClient
+
+	s.pipeline.Subscribe(newClient.conn)
 	s.mu.Unlock()
 
 	// send a congratulatory message to the client

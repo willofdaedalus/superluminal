@@ -37,6 +37,12 @@ func EncodePayload(header common.Header, content isPayload_Content) ([]byte, err
 			log.Print("wrong info header")
 			return nil, utils.ErrPayloadHeaderMismatch
 		}
+	case common.Header_HEADER_TERMINAL_DATA:
+		_, ok := content.(*Payload_TermContent)
+		if !ok {
+			log.Print("wrong info header")
+			return nil, utils.ErrPayloadHeaderMismatch
+		}
 		// // double check to ensure we're matching the correct header as the payload
 		// _, ok = au.Auth.AuthType.(*auth.Authentication_Response)
 		// if !ok {
@@ -142,7 +148,7 @@ func GenerateAuthReq() *Payload_Auth {
 // GenerateTermContent generates a new Payload of type term content which is passed to the Encoder
 // to transform into bytes to be sent over the wire. Upon receiving the content, it is then appended
 // to the last sent content
-func GenerateTermContent(msgId string, msgLen int32, data []byte) Payload_TermContent {
+func GenerateTermContent(msgId string, data []byte) Payload_TermContent {
 	return Payload_TermContent{
 		TermContent: &term.TerminalContent{
 			MessageId:     uuid.NewString(),

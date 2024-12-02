@@ -140,6 +140,12 @@ func (c *client) handleServerShutdown(ctx context.Context) error {
 	return nil
 }
 
+func (c *client) handleTermPayload(payload base.Payload_TermContent) error {
+	fmt.Print(string(payload.TermContent.Data))
+
+	return nil
+}
+
 func (c *client) Cleanup() {
 	// Stop signal handling
 	if c.sigChan != nil {

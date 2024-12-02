@@ -21,7 +21,8 @@ func getUserShell() string {
 
 // creates and returns a new pty session that reads from os.Stdin
 func createSession() (*os.File, error) {
-	sh := exec.Command(getUserShell())
+	sh := exec.Command("/bin/bash")
+	// sh := exec.Command(getUserShell())
 
 	ptmx, err := pty.Start(sh)
 	if err != nil {
@@ -30,6 +31,7 @@ func createSession() (*os.File, error) {
 
 	if err = pty.InheritSize(os.Stdin, ptmx); err != nil {
 		fmt.Println("couldn't resize pty:", err)
+		return nil, err
 	}
 
 	return ptmx, nil

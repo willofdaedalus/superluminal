@@ -1,102 +1,159 @@
 package pipeline
 
 import (
+	"bufio"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"sync"
-)
+	"willofdaedalus/superluminal/internal/payload/base"
+	"willofdaedalus/superluminal/internal/payload/common"
 
-type consumer struct {
-	conn      net.Conn
-	lastMsgId int
-}
+	"github.com/google/uuid"
+)
 
 type Pipeline struct {
 	pty           *os.File
 	mainClient    *os.File
-	consumers     map[*net.Conn]struct{}
-	consumerCount int
+	consumers     map[net.Conn]struct{}
+	consumerCount uint8
 	lastMsg       int
 	mu            sync.Mutex
+	stopChan      chan struct{}
 }
 
-// creates a new Pipeline to bridge the pty and the rest of the world
-func NewPipeline(maxConns int) (*Pipeline, error) {
-	tty, err := createSession()
+// creates a new pipeline to bridge the pty and the rest of the world
+func NewPipeline(maxConns uint8) (*Pipeline, error) {
+	pty, err := createSession()
 	if err != nil {
 		return nil, err
 	}
-
-	cs := make(map[*net.Conn]struct{}, maxConns)
-
+	cs := make(map[net.Conn]struct{}, maxConns)
 	return &Pipeline{
-		pty:       tty,
+		pty:       pty,
 		consumers: cs,
+		stopChan:  make(chan struct{}),
 	}, nil
 }
 
+// starts broadcasting pty output to all connected consumers
 func (p *Pipeline) Start() {
+	go func() {
+		p.WriteTo([]byte("\x0C"))
+		for {
+			select {
+			case <-p.stopChan:
+				return
+			default:
+				// read from pty
+				buf, err := p.ReadFrom()
+				if err != nil || buf == nil {
+					log.Printf("there was an error %v or the buf was nil", err)
+					continue
+				}
 
+				// broadcast to all consumers
+				p.mu.Lock()
+				for conn := range p.consumers {
+					// non-blocking write to prevent slow consumers from blocking
+					select {
+					case <-p.stopChan:
+						p.mu.Unlock()
+						return
+					default:
+						termPayload := base.GenerateTermContent(uuid.NewString(), buf)
+						payload, err := base.EncodePayload(common.Header_HEADER_TERMINAL_DATA, &termPayload)
+						if err != nil {
+							log.Println("failed to encode the terminal payload in pipeline.Start")
+							log.Println(err)
+							continue
+						}
+
+						_, writeErr := conn.Write(payload)
+						if writeErr != nil {
+							fmt.Printf("Error writing to consumer: %v\n", writeErr)
+							// consider removing the failing consumer
+							delete(p.consumers, conn)
+						}
+					}
+				}
+				p.mu.Unlock()
+			}
+		}
+	}()
 }
 
-// add a new client to the pipeline
-func (p *Pipeline) Subscribe(conn *net.Conn) {
+// Add a new client to the pipeline
+func (p *Pipeline) Subscribe(conn net.Conn) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
-	// c := &consumer{
-	// 	conn:      *conn,
-	// 	lastMsgId: p.lastMsg,
-	// }
-
 	p.consumers[conn] = struct{}{}
 	p.consumerCount += 1
-
 }
 
-// remove a client from the pipeline
-func (p *Pipeline) Unsubscribe(conn *net.Conn) {
+// Remove a client from the pipeline
+func (p *Pipeline) Unsubscribe(conn net.Conn) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
-	// not decrementing the consumer count for sanity check
-	for c := range p.consumers {
-		if c == conn {
-			delete(p.consumers, c)
-		}
+	delete(p.consumers, conn)
+	if p.consumerCount > 0 {
+		p.consumerCount -= 1
 	}
 }
 
+// Closes the pipeline and stops broadcasting
 func (p *Pipeline) Close() {
-	// clear out the consumers
+	// Signal the broadcasting goroutine to stop
+	close(p.stopChan)
+
+	// Clear out the consumers
+	p.mu.Lock()
 	for k := range p.consumers {
 		delete(p.consumers, k)
+		k.Close()
 	}
+	p.mu.Unlock()
 
+	// Close the PTY
 	p.pty.Close()
 }
 
-// writes whatever is passed to the PTY
-// used to pass commands to the PTY
-func (t *Pipeline) WriteTo(stuff []byte) {
+// Writes whatever is passed to the PTY
+// Used to pass commands to the PTY
+func (p *Pipeline) WriteTo(stuff []byte) {
 	if len(stuff) == 0 {
 		return
 	}
-
-	t.pty.Write(stuff)
+	p.pty.Write(stuff)
 }
 
 // reads whatever is in the pty and returns it
-func (t *Pipeline) ReadFrom() []byte {
+func (p *Pipeline) ReadFrom() ([]byte, error) {
 	buf := make([]byte, 1024)
-	for {
-		n, err := t.pty.Read(buf)
-		if err != nil {
-			fmt.Println("couldn't read from the pty:", err)
-			continue
-		}
+	n, err := p.pty.Read(buf)
+	if err != nil {
+		fmt.Println("Couldn't read from the PTY:", err)
+		return nil, err
+	}
+	return buf[:n], nil
+}
 
-		return buf[:n]
+func (p *Pipeline) ReadStdin() {
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		// Get the line of input
+		line := scanner.Text()
+
+		// Append a newline, as PTY expects terminal-like input
+		lineWithNewline := line + "\n"
+
+		// Write to the PTY
+		p.WriteTo([]byte(lineWithNewline))
+	}
+
+	// Check for errors during scanning
+	if err := scanner.Err(); err != nil {
+		fmt.Println("Error reading standard input:", err)
 	}
 }

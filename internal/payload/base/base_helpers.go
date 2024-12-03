@@ -1,6 +1,7 @@
 package base
 
 import (
+	"fmt"
 	"hash/crc32"
 	"log"
 	"time"
@@ -62,7 +63,7 @@ func EncodePayload(header common.Header, content isPayload_Content) ([]byte, err
 
 	data, err := proto.Marshal(&payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encode err: %v", err)
 	}
 
 	return data, nil
@@ -98,7 +99,7 @@ func DecodePayload(data []byte) (*Payload, error) {
 
 	err := proto.Unmarshal(data, &payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode err: %v", err)
 	}
 
 	return &payload, nil

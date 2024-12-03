@@ -125,6 +125,7 @@ func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 		}
 
 		if err != nil {
+			log.Println(err)
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				return nil, ErrCtxTimeOut
 			}

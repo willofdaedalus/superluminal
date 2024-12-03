@@ -1,7 +1,6 @@
 package pipeline
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"net"
@@ -52,6 +51,8 @@ func (p *Pipeline) Start() {
 					log.Printf("there was an error %v or the buf was nil", err)
 					continue
 				}
+
+				fmt.Print(string(buf))
 
 				// broadcast to all consumers
 				p.mu.Lock()
@@ -130,7 +131,7 @@ func (p *Pipeline) WriteTo(stuff []byte) {
 
 // reads whatever is in the pty and returns it
 func (p *Pipeline) ReadFrom() ([]byte, error) {
-	buf := make([]byte, 1024)
+	buf := make([]byte, 10240)
 	n, err := p.pty.Read(buf)
 	if err != nil {
 		fmt.Println("Couldn't read from the PTY:", err)
@@ -140,20 +141,38 @@ func (p *Pipeline) ReadFrom() ([]byte, error) {
 }
 
 func (p *Pipeline) ReadStdin() {
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		// Get the line of input
-		line := scanner.Text()
+	// Buffer for reading a single byte
+	buf := make([]byte, 1)
+	for {
+		// Read a single byte from stdin
+		n, err := os.Stdin.Read(buf)
+		if err != nil {
+			fmt.Println("Error reading standard input:", err)
+			return
+		}
 
-		// Append a newline, as PTY expects terminal-like input
-		lineWithNewline := line + "\n"
-
-		// Write to the PTY
-		p.WriteTo([]byte(lineWithNewline))
-	}
-
-	// Check for errors during scanning
-	if err := scanner.Err(); err != nil {
-		fmt.Println("Error reading standard input:", err)
+		// Ensure the byte read is sent to the PTY
+		if n > 0 {
+			p.WriteTo(buf)
+		}
 	}
 }
+
+// func (p *Pipeline) ReadStdin() {
+// 	scanner := bufio.NewScanner(os.Stdin)
+// 	for scanner.Scan() {
+// 		// Get the line of input
+// 		line := scanner.Text()
+
+// 		// Append a newline, as PTY expects terminal-like input
+// 		lineWithNewline := line + "\n"
+
+// 		// Write to the PTY
+// 		p.WriteTo([]byte(lineWithNewline))
+// 	}
+
+// 	// Check for errors during scanning
+// 	if err := scanner.Err(); err != nil {
+// 		fmt.Println("Error reading standard input:", err)
+// 	}
+// }

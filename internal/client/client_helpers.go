@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"log"
 	"os"
 	"os/signal"
@@ -141,7 +142,19 @@ func (c *client) handleServerShutdown(ctx context.Context) error {
 }
 
 func (c *client) handleTermPayload(payload base.Payload_TermContent) error {
-	fmt.Print(string(payload.TermContent.Data))
+	termContent := payload.TermContent
+
+	sameLen := len(termContent.GetData()) == int(termContent.GetMessageLength())
+	crcMatch := crc32.ChecksumIEEE(termContent.GetData()) == termContent.GetCrc32()
+
+	if !sameLen {
+		return fmt.Errorf("message data length differ")
+	}
+	if !crcMatch {
+		return fmt.Errorf("crc doesn't match")
+	}
+
+	fmt.Print(string(termContent.GetData()))
 
 	return nil
 }

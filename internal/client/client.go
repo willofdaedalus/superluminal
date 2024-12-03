@@ -46,7 +46,6 @@ func New(name string) *client {
 	}
 }
 
-// func (c *client) ConnectToSession(ctx context.Context, host, port string) error {
 func (c *client) ConnectToSession(ctx context.Context, host string) error {
 	var dialer net.Dialer
 	var err error
@@ -54,7 +53,7 @@ func (c *client) ConnectToSession(ctx context.Context, host string) error {
 	dialCtx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 
-	c.serverConn, err = dialer.DialContext(dialCtx, "http", host)
+	c.serverConn, err = dialer.DialContext(dialCtx, "tcp", host)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			log.Println("server has already shutdown")
@@ -65,6 +64,7 @@ func (c *client) ConnectToSession(ctx context.Context, host string) error {
 		return err
 	}
 
+	fmt.Printf("connecting to server at %s...\n", host)
 	return nil
 }
 

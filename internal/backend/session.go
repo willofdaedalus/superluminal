@@ -39,7 +39,7 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 	var reader bytes.Reader
 	clients := make(map[string]*sessionClient, maxConns)
 
-	listener, err := net.Listen("tcp", ":42024")
+	listener, err := net.Listen("tcp", "0.0.0.0:42024") // Listen on all interfaces (IPv4)
 	if err != nil {
 		return nil, err
 	}

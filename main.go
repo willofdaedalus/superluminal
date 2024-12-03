@@ -5,9 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"willofdaedalus/superluminal/internal/backend"
 	"willofdaedalus/superluminal/internal/client"
+
+	"golang.org/x/term"
 )
 
 var (
@@ -41,12 +44,20 @@ func main() {
 			log.Fatal(err.Error())
 		}
 
+		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+		if err != nil {
+			panic(err)
+		}
+		defer term.Restore(int(os.Stdin.Fd()), oldState)
 		session.Start()
+
 	} else {
 		errChan := make(chan error, 1)
 		ctx := context.Background()
 		client := client.New("hello")
-		err := client.ConnectToSession(ctx, "localhost", "42024")
+		// err := client.ConnectToSession(ctx, "localhost", "42024")
+		err := client.ConnectToSession(ctx, os.Args[1])
+
 		if err != nil {
 			log.Fatal(err.Error())
 		}

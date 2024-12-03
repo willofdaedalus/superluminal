@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -45,14 +46,15 @@ func New(name string) *client {
 	}
 }
 
-func (c *client) ConnectToSession(ctx context.Context, host, port string) error {
+// func (c *client) ConnectToSession(ctx context.Context, host, port string) error {
+func (c *client) ConnectToSession(ctx context.Context, host string) error {
 	var dialer net.Dialer
 	var err error
 
 	dialCtx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 
-	c.serverConn, err = dialer.DialContext(dialCtx, "tcp", net.JoinHostPort(host, port))
+	c.serverConn, err = dialer.DialContext(dialCtx, "http", host)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			log.Println("server has already shutdown")
@@ -157,6 +159,8 @@ func (c *client) processPayload(ctx context.Context, data []byte) error {
 		if ok {
 			return c.handleHeartbeatPayload()
 		}
+	default:
+		fmt.Print(string(data))
 	}
 
 	return utils.ErrUnspecifiedPayload

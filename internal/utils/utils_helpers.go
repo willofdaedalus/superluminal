@@ -1,0 +1,24 @@
+package utils
+
+import (
+	"fmt"
+	"os"
+	"time"
+)
+
+// logBytes logs the length of received bytes with a timestamp to a file.
+func LogBytes(action, filePath string, receivedBytes []byte) {
+	// Open or create the log file
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Printf("Error opening log file: %v\n", err)
+		return
+	}
+	defer f.Close()
+
+	// Log the length of bytes and timestamp
+	logEntry := fmt.Sprintf("%s: %s %d bytes\n", action, time.Now().Format(time.RFC3339), len(receivedBytes))
+	if _, err := f.WriteString(logEntry); err != nil {
+		fmt.Printf("Error writing to log file: %v\n", err)
+	}
+}

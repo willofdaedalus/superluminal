@@ -147,6 +147,8 @@ func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 
 		// If we got here with no error, we have a complete read
 		conn.SetReadDeadline(time.Time{}) // Reset the deadline
+		home, _ := os.UserHomeDir()
+		LogBytes("read", home+"/superluminal.log", data.Bytes())
 		return data.Bytes(), nil
 	}
 	return nil, ErrFailedAfterRetries

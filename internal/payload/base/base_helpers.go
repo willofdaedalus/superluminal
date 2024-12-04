@@ -44,12 +44,7 @@ func EncodePayload(header common.Header, content isPayload_Content) ([]byte, err
 			log.Print("wrong info header")
 			return nil, utils.ErrPayloadHeaderMismatch
 		}
-		// // double check to ensure we're matching the correct header as the payload
-		// _, ok = au.Auth.AuthType.(*auth.Authentication_Response)
-		// if !ok {
-		// 	return nil, utils.ErrPayloadHeaderMismatch
-		// }
-	// case common.Header_HEADER_UNSPECIFIED:
+
 	default:
 		return nil, utils.ErrPayloadHeaderMismatch
 	}

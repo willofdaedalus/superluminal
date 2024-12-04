@@ -8,6 +8,7 @@ import (
 	"sync"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
+	"willofdaedalus/superluminal/internal/utils"
 
 	"github.com/google/uuid"
 )
@@ -52,7 +53,8 @@ func (p *Pipeline) Start() {
 					continue
 				}
 
-				fmt.Print(string(buf))
+				// this is for the client facing side so that they "see" what's happening
+				writeDataToScreen(buf)
 
 				// broadcast to all consumers
 				p.mu.Lock()
@@ -77,12 +79,18 @@ func (p *Pipeline) Start() {
 							// consider removing the failing consumer
 							delete(p.consumers, conn)
 						}
+						home, _ := os.UserHomeDir()
+						utils.LogBytes("wrote", home+"/superluminal.log", payload)
 					}
 				}
 				p.mu.Unlock()
 			}
 		}
 	}()
+}
+
+func writeDataToScreen(data []byte) {
+	fmt.Printf(string(data))
 }
 
 // Add a new client to the pipeline
@@ -137,6 +145,7 @@ func (p *Pipeline) ReadFrom() ([]byte, error) {
 		fmt.Println("Couldn't read from the PTY:", err)
 		return nil, err
 	}
+
 	return buf[:n], nil
 }
 

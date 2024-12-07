@@ -17,31 +17,35 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type PayloadType int
+
+const (
+	PayloadUnknown = iota + 1
+	PayloadAuth
+	PayloadTermContent
+	PayloadHeartbeat
+	PayloadError
+	PayloadInfo
+)
+
 // EncodePayload creates a payload with the provided arguments and using proto, marshalls
 // it to bytes which it then returns ready to be sent across the wire
 func EncodePayload(header common.Header, content isPayload_Content) ([]byte, error) {
 	switch header {
 	case common.Header_HEADER_ERROR:
-		_, ok := content.(*Payload_Error)
-		if !ok {
+		if GetPayloadType(content) != PayloadError {
 			return nil, utils.ErrPayloadHeaderMismatch
 		}
 	case common.Header_HEADER_AUTH:
-		_, ok := content.(*Payload_Auth)
-		if !ok {
-			log.Print("auth request failed")
+		if GetPayloadType(content) != PayloadAuth {
 			return nil, utils.ErrPayloadHeaderMismatch
 		}
 	case common.Header_HEADER_INFO:
-		_, ok := content.(*Payload_Info)
-		if !ok {
-			log.Print("wrong info header")
+		if GetPayloadType(content) != PayloadInfo {
 			return nil, utils.ErrPayloadHeaderMismatch
 		}
 	case common.Header_HEADER_TERMINAL_DATA:
-		_, ok := content.(*Payload_TermContent)
-		if !ok {
-			log.Print("wrong info header")
+		if GetPayloadType(content) != PayloadTermContent {
 			return nil, utils.ErrPayloadHeaderMismatch
 		}
 
@@ -62,6 +66,21 @@ func EncodePayload(header common.Header, content isPayload_Content) ([]byte, err
 	}
 
 	return data, nil
+}
+
+func GetPayloadType(payload isPayload_Content) PayloadType {
+	switch payload.(type) {
+	case *Payload_Auth:
+		return PayloadAuth
+	case *Payload_TermContent:
+		return PayloadTermContent
+	case *Payload_Info:
+		return PayloadInfo
+	case *Payload_Heartbeat:
+		return PayloadHeartbeat
+	default:
+		return PayloadUnknown
+	}
 }
 
 // GenerateInfo generates an info payload that contains something for its

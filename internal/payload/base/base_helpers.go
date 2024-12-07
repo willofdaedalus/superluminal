@@ -144,11 +144,11 @@ func GenerateAuthReq() *Payload_Auth {
 // GenerateTermContent generates a new Payload of type term content which is passed to the Encoder
 // to transform into bytes to be sent over the wire. Upon receiving the content, it is then appended
 // to the last sent content
-func GenerateTermContent(msgId string, data []byte) Payload_TermContent {
+func GenerateTermContent(msgId string, dataLen uint32, data []byte) Payload_TermContent {
 	return Payload_TermContent{
 		TermContent: &term.TerminalContent{
 			MessageId:     uuid.NewString(),
-			MessageLength: uint32(len(data)),
+			MessageLength: dataLen,
 			Data:          data,
 			Crc32:         crc32.ChecksumIEEE(data),
 		},

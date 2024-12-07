@@ -49,8 +49,8 @@ func (p *Pipeline) Start() {
 				// read from pty
 				buf, err := p.ReadFrom()
 				if err != nil || buf == nil {
-					log.Printf("there was an error %v or the buf was nil", err)
-					continue
+					// continue
+					log.Fatal(err)
 				}
 
 				// this is for the client facing side so that they "see" what's happening
@@ -65,7 +65,9 @@ func (p *Pipeline) Start() {
 						p.mu.Unlock()
 						return
 					default:
-						termPayload := base.GenerateTermContent(uuid.NewString(), buf)
+						bufCopy := make([]byte, len(buf))
+						copy(bufCopy, buf)
+						termPayload := base.GenerateTermContent(uuid.NewString(), uint32(len(buf)), buf)
 						payload, err := base.EncodePayload(common.Header_HEADER_TERMINAL_DATA, &termPayload)
 						if err != nil {
 							log.Println("failed to encode the terminal payload in pipeline.Start")
@@ -143,7 +145,7 @@ func (p *Pipeline) ReadFrom() ([]byte, error) {
 	n, err := p.pty.Read(buf)
 	if err != nil {
 		fmt.Println("Couldn't read from the PTY:", err)
-		return nil, err
+		return nil, fmt.Errorf("server ended session")
 	}
 
 	return buf[:n], nil

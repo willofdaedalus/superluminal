@@ -16,9 +16,19 @@ func LogBytes(action, filePath string, receivedBytes []byte) {
 	}
 	defer f.Close()
 
-	// Log the length of bytes and timestamp
+	// log the length of bytes and timestamp
 	logEntry := fmt.Sprintf("%s: %s %d bytes\n", action, time.Now().Format(time.RFC3339), len(receivedBytes))
 	if _, err := f.WriteString(logEntry); err != nil {
 		fmt.Printf("Error writing to log file: %v\n", err)
+	}
+}
+
+// utility function to safely close channels
+func SafeClose[T any](ch chan T) {
+	select {
+	case <-ch:
+		// channel is already closed
+	default:
+		close(ch)
 	}
 }

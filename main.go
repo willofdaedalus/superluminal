@@ -55,8 +55,12 @@ func main() {
 		errChan := make(chan error, 1)
 		ctx := context.Background()
 		client := client.New("hello")
+		addr := "localhost:42024"
+		if os.Args[1] != "" {
+			addr = os.Args[1]
+		}
 		// err := client.ConnectToSession(ctx, "localhost", "42024")
-		err := client.ConnectToSession(ctx, os.Args[1])
+		err := client.ConnectToSession(ctx, addr)
 
 		if err != nil {
 			log.Fatal(err.Error())
@@ -67,12 +71,18 @@ func main() {
 		}()
 
 		// Handle errors and shutdown
-		for err := range errChan {
-			// if errors.Is(err, utils.ErrServerFull) {
-			// 	log.Fatal(err.Error())
-			// }
-			log.Println(err)
-			break
+		for {
+			select {
+			case err, ok := <-errChan:
+				if !ok {
+					fmt.Println("error channel closed")
+					return
+				}
+				if err != nil {
+					fmt.Println("got something")
+					log.Println(err)
+				}
+			}
 		}
 	}
 }

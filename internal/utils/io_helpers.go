@@ -40,53 +40,55 @@ func (ws *WriteStruct) headerMsgByte() []byte {
 // defined until it gives up and returns an error
 // it respects the context passed to it
 func TryWriteCtx(ctx context.Context, conn net.Conn, data []byte) error {
-	writeCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	for tries := 0; tries < maxTries; tries++ {
-		deadline, ok := writeCtx.Deadline()
-		if ok {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			// proceed with the write
+		}
+
+		// set deadline from context
+		if deadline, ok := ctx.Deadline(); ok {
 			if err := conn.SetWriteDeadline(deadline); err != nil {
 				if errors.Is(err, os.ErrDeadlineExceeded) {
 					return ErrCtxTimeOut
 				}
-
 				return ErrDeadlineUnsuccessful
 			}
 		}
 
-		if tries == maxTries-1 {
-			return ErrFailedAfterRetries
-		}
-
-		_, err := conn.Write(data)
-		if err != nil {
-			if errors.Is(err, os.ErrDeadlineExceeded) {
-				return ErrCtxTimeOut
-			}
-
-			if errors.Is(err, io.EOF) {
-				return io.EOF
-			}
-
-			retryTime := time.Second * (1 << uint(tries))
-			if retryTime > MaxBackoffTime {
-				retryTime = MaxBackoffTime
-			}
-
-			select {
-			case <-writeCtx.Done():
-				if errors.Is(writeCtx.Err(), context.DeadlineExceeded) {
-					return writeCtx.Err()
+		// handle partial writes
+		bytesWritten := 0
+		for bytesWritten < len(data) {
+			n, err := conn.Write(data[bytesWritten:])
+			if err != nil {
+				if errors.Is(err, os.ErrDeadlineExceeded) {
+					return ErrCtxTimeOut
 				}
-			case <-time.After(retryTime):
-				log.Printf("retrying connection to server...")
-				continue
+				if errors.Is(err, io.EOF) {
+					return io.EOF
+				}
+
+				// retry with exponential backoff
+				retryTime := time.Second * (1 << uint(tries))
+				if retryTime > MaxBackoffTime {
+					retryTime = MaxBackoffTime
+				}
+
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(retryTime):
+					log.Printf("retrying connection after error: %v (try %d/%d)", err, tries+1, maxTries)
+					break // retry outer loop
+				}
 			}
+			bytesWritten += n
 		}
 
 		// successful write
-		conn.SetWriteDeadline(time.Time{}) // Reset the deadline
+		conn.SetWriteDeadline(time.Time{})
 		return nil
 	}
 
@@ -98,17 +100,19 @@ func TryWriteCtx(ctx context.Context, conn net.Conn, data []byte) error {
 // are not in any hurry to read something from a connection
 func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 	var data bytes.Buffer
-	writeCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	buf := make([]byte, MaxPayloadSize)
 
 	for tries := 0; tries < maxTries; tries++ {
-		if tries == maxTries-1 {
-			return nil, ErrFailedAfterRetries
+		// Exit if the context is canceled
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+			// continue to attempt reading
 		}
 
-		deadline, ok := writeCtx.Deadline()
+		// set the deadline based on the context
+		deadline, ok := ctx.Deadline()
 		if ok {
 			if err := conn.SetReadDeadline(deadline); err != nil {
 				if errors.Is(err, os.ErrDeadlineExceeded) {
@@ -118,38 +122,37 @@ func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 			}
 		}
 
+		// attempt to read from the connection
 		n, err := conn.Read(buf)
-		// Write any data we got before handling errors
 		if n > 0 {
 			data.Write(buf[:n])
 		}
 
+		// handle errors
 		if err != nil {
-			log.Println(err)
 			if errors.Is(err, os.ErrDeadlineExceeded) {
-				return nil, ErrCtxTimeOut
+				return nil, err
 			}
 			if errors.Is(err, io.EOF) {
 				return nil, ErrConnectionClosed
 			}
 
+			// backoff before retrying
 			retryTime := time.Second * (1 << uint(tries))
 			select {
-			case <-writeCtx.Done():
-				if errors.Is(writeCtx.Err(), context.DeadlineExceeded) {
-					return nil, writeCtx.Err()
-				}
+			case <-ctx.Done():
+				return nil, ctx.Err()
 			case <-time.After(retryTime):
-				log.Printf("retrying connection to server...")
 				continue
 			}
 		}
 
-		// If we got here with no error, we have a complete read
-		conn.SetReadDeadline(time.Time{}) // Reset the deadline
+		// successful read
+		conn.SetReadDeadline(time.Time{})
 		home, _ := os.UserHomeDir()
 		LogBytes("read", home+"/superluminal.log", data.Bytes())
 		return data.Bytes(), nil
 	}
+
 	return nil, ErrFailedAfterRetries
 }

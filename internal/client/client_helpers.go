@@ -159,68 +159,20 @@ func (c *client) handleTermPayload(payload base.Payload_TermContent) error {
 	return nil
 }
 
-func (c *client) Cleanup() {
-	// Stop signal handling
-	if c.sigChan != nil {
-		signal.Stop(c.sigChan)
-		close(c.sigChan)
-	}
-
-	// Close exit channel to signal all goroutines to stop
-	if c.exitChan != nil {
-		close(c.exitChan)
-	}
-
-	// Wait for any ongoing actions to complete
-	for i := 0; i < maxConnTries; i++ {
-		if !c.tracker.AnyActionInProgress() {
-			break
-		}
-		time.Sleep(time.Second * 1)
-	}
-
-	// Close server connection
-	if c.serverConn != nil {
-		c.serverConn.Close()
-	}
-
-	// Clear terminal content channel
-	c.clearTermContent()
-
-	// Optional: Log cleanup
-	log.Printf("Client %s cleaned up", c.name)
-}
-
-// Helper method to clear terminal content channel
-func (c *client) clearTermContent() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Drain the channel if it's not nil
-	if c.TermContent != nil {
-		for {
-			select {
-			case <-c.TermContent:
-				// Keep draining
-			default:
-				// Channel is empty
-				return
-			}
-		}
-	}
-}
-
 func (c *client) startCleanup(ctx context.Context) {
+	fmt.Println("exiting with cleanup")
 	cleanCtx, cancel := context.WithTimeout(ctx, cleanupTime)
-	// mainly deferred here in case the utils.TryWriteCtx fails
+
+	// safely close connections and channels
 	defer func() {
-		cancel()
-		close(c.sigChan)
-		close(c.exitChan)
+		// close these only if they haven't been closed already
+		utils.SafeClose(c.sigChan)
+		utils.SafeClose(c.exitChan)
 		c.serverConn.Close()
+		cancel()
 	}()
 
-	// only send a message if the server has accepted this client
+	// Only send shutdown message if approved
 	if c.isApproved {
 		infoPayload := base.GenerateInfo(info.Info_INFO_SHUTDOWN, "client_shutdown")
 		payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
@@ -228,31 +180,35 @@ func (c *client) startCleanup(ctx context.Context) {
 			return
 		}
 
+		// Use the cleanup context for writing
 		err = c.writeToServer(cleanCtx, payload)
 		if err != nil {
-			// server is already shutdown
-			// if errors.Is(err, io.EOF) {
-			// 	return
-			// }
-			// check the errors we don't want to return on
-			// if !(errors.Is(err, io.EOF) || errors.Is(err, utils.ErrCtxTimeOut)) {
-			// 	return
-			// }
-			return
+			// Log or handle write errors as needed
+			log.Println("Error during shutdown write:", err)
 		}
+
+		fmt.Println("wrote to server")
+
+		c.isApproved = false
 	}
 }
 
 func (c *client) handleSignals() {
-	signals := []os.Signal{syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM}
-	signal.Notify(c.sigChan, signals...)
+	signals := []os.Signal{
+		syscall.SIGINT,
+		syscall.SIGTERM,
+	}
 
-	for {
-		select {
-		case <-c.sigChan:
-			c.startCleanup(context.Background())
-			return
-		}
+	signal.Notify(c.sigChan, signals...)
+	defer signal.Stop(c.sigChan)
+
+	sig := <-c.sigChan
+	switch sig {
+	case syscall.SIGINT, syscall.SIGTERM:
+		// cancel the context to trigger shutdown
+		c.exitChan <- struct{}{}
+		fmt.Println("received signal:", sig)
+		return
 	}
 }
 

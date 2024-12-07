@@ -69,57 +69,53 @@ func (c *client) ConnectToSession(ctx context.Context, host string) error {
 }
 
 func (c *client) ListenForMessages(errChan chan<- error) {
-	ctx, cancelMain := context.WithCancel(context.Background())
-
+	done := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {
+		fmt.Println("cleaning up...")
 		c.startCleanup(ctx)
-		cancelMain()
+		cancel()
+		fmt.Println("done cleaning")
+		close(errChan)
 	}()
 
-	// go c.handleSignals()
-
-	messageHandler := make(chan error)
+	go c.handleSignals()
 	go func() {
+		defer func() {
+			done <- struct{}{}
+		}()
 		for {
-			data, err := c.readFromServer(ctx)
-			if err != nil {
-				if errors.Is(err, utils.ErrConnectionClosed) {
-					log.Println("server has shutdown or not available")
+			// Wrap read in a select to check exitChan
+			readErrChan := make(chan error, 1)
+			readDataChan := make(chan []byte, 1)
+
+			go func() {
+				read, err := c.readFromServer(ctx)
+				if err != nil {
+					readErrChan <- err
+					return
 				}
+				readDataChan <- read
+			}()
+
+			select {
+			case <-c.exitChan:
+				return
+			case err := <-readErrChan:
 				if errors.Is(err, utils.ErrCtxTimeOut) {
-					log.Println("timed out waiting for server")
 					continue
 				}
-				// messageHandler <- err
-				// return
-				// TODO; SEND THIS ERROR UPSTREAM FOR BUBBLETEA TO INTERCEPT
-				log.Fatal(err)
-			}
-
-			if data == nil {
-				messageHandler <- errors.New("sprlmnl: received an empty payload")
+				errChan <- err
 				return
-			}
-
-			if err := c.processPayload(ctx, data); err != nil {
-				// TODO: in the future reconnect when necessary so to ensure a smooth UX
-				// if errors.Is(err, u.ErrCtxTimeOut) {
-				// 	messageHandler <- u.ErrLongWait
-				// 	return
-				// }
-
-				messageHandler <- err
-				return
+			case read := <-readDataChan:
+				if err := c.processPayload(ctx, read); err != nil {
+					errChan <- err
+					return
+				}
 			}
 		}
 	}()
-
-	select {
-	case err := <-messageHandler:
-		// we'll always send a non-nil error so no need to check
-		errChan <- err
-		return
-	}
+	<-done
 }
 
 func (c *client) processPayload(ctx context.Context, data []byte) error {

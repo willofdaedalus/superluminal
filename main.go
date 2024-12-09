@@ -56,9 +56,10 @@ func main() {
 		ctx := context.Background()
 		client := client.New("hello")
 		addr := "localhost:42024"
-		if os.Args[1] != "" {
+		if len(os.Args) > 1 {
 			addr = os.Args[1]
 		}
+
 		// err := client.ConnectToSession(ctx, "localhost", "42024")
 		err := client.ConnectToSession(ctx, addr)
 

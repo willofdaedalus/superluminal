@@ -6,6 +6,7 @@ message Info {
 		INFO_UNSPECIFIED = 0;
 		INFO_AUTH_SUCCESS = 1;
 		INFO_SHUTDOWN = 2;
+        INFO_REQ_ACK = 3;
 	}
 
 	InfoType infoType = 1;

@@ -81,14 +81,17 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 
 	go c.handleSignals()
 	go func() {
+		readErrChan := make(chan error, 1)
+		readDataChan := make(chan []byte, 1)
+
 		defer func() {
 			done <- struct{}{}
+			close(readErrChan)
+			close(readDataChan)
 		}()
 		for {
-			// Wrap read in a select to check exitChan
-			readErrChan := make(chan error, 1)
-			readDataChan := make(chan []byte, 1)
-
+			// otherwise this guy blocks and it's an annoying piece of work
+			// since we can't get to the select block
 			go func() {
 				read, err := c.readFromServer(ctx)
 				if err != nil {
@@ -99,12 +102,12 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 			}()
 
 			select {
+			case <-ctx.Done():
+				return
 			case <-c.exitChan:
 				return
 			case err := <-readErrChan:
-				if errors.Is(err, utils.ErrCtxTimeOut) {
-					continue
-				}
+				log.Println("critical error: ", err)
 				errChan <- err
 				return
 			case read := <-readDataChan:

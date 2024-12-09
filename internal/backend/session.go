@@ -39,7 +39,7 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 	var reader bytes.Reader
 	clients := make(map[string]*sessionClient, maxConns)
 
-	listener, err := net.Listen("tcp", "0.0.0.0:42024") // Listen on all interfaces (IPv4)
+	listener, err := net.Listen("tcp", ":42024") // Listen on all interfaces (IPv4)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,11 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 	master := createClient(owner, nil, true)
 	clients[master.uuid] = master
 
-	signals := []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT}
+	signals := []os.Signal{
+		syscall.SIGINT,
+		syscall.SIGTERM,
+		syscall.SIGQUIT,
+	}
 
 	return &session{
 		Owner:         owner,
@@ -114,6 +118,8 @@ func (s *session) Start() error {
 }
 
 func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan chan error) {
+	idChan := make(chan string, 1)
+
 	log.Println("server started...")
 	defer close(doneChan)
 	for {
@@ -133,7 +139,7 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 			return
 		}
 
-		// Use a buffered channel to manage concurrency
+		// upon successful connection
 		go func(conn net.Conn) {
 			fmt.Println("new connection...")
 			if len(s.clients) >= int(s.maxConns) {
@@ -167,11 +173,19 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 				return
 			}
 
-			if err := s.handleNewConn(ctx, conn); err != nil {
+			clientID, err := s.handleNewConn(ctx, conn)
+			if err != nil {
 				errChan <- err
+				idChan <- ""
 				return
 			}
+
+			idChan <- clientID
 		}(conn)
+
+		// probably not the best way to go at this but a check in handleClientIO
+		// will return early if idChan passes an empty string due to an error
+		go s.handleClientIO(ctx, <-idChan)
 	}
 }
 
@@ -234,7 +248,7 @@ func (s *session) End() error {
 				continue
 			}
 
-			client := client // capture loop variable
+			// client := client // capture loop variable
 			group.Go(func() error {
 				// Prepare shutdown notification
 				infoPayload := base.GenerateInfo(info.Info_INFO_SHUTDOWN, "Server is shutting down")
@@ -265,11 +279,14 @@ func (s *session) End() error {
 	return nil
 }
 
-func (s *session) handleNewConn(ctx context.Context, conn net.Conn) error {
+func (s *session) handleNewConn(ctx context.Context, conn net.Conn) (string, error) {
 	name, err := s.authenticateClient(ctx, conn)
 	if err != nil {
-		s.kickAndCloseClient(ctx, conn, err1.ErrorMessage_ERROR_AUTH_FAILED, []string{"failed_auth", "couldn't pass auth"})
-		return err
+		s.kickAndCloseClient(ctx,
+			conn,
+			err1.ErrorMessage_ERROR_AUTH_FAILED, []string{"failed_auth", "couldn't pass auth"},
+		)
+		return "", err
 	}
 
 	s.mu.Lock()
@@ -283,17 +300,129 @@ func (s *session) handleNewConn(ctx context.Context, conn net.Conn) error {
 	infoPayload := base.GenerateInfo(info.Info_INFO_AUTH_SUCCESS, "welcome to the session")
 	payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
 	if err != nil {
-		return fmt.Errorf("failed to encode welcome payload: %w", err)
+		return "", fmt.Errorf("failed to encode welcome payload: %w", err)
 	}
 
 	err = s.writeToClient(ctx, conn, payload)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
-			return fmt.Errorf("client disconnected: %w", err)
+			return "", fmt.Errorf("client disconnected: %w", err)
 		}
-		return fmt.Errorf("failed to send welcome message: %w", err)
+		return "", fmt.Errorf("failed to send welcome message: %w", err)
 	}
 
 	log.Println("hello client", newClient.uuid)
+	return newClient.uuid, nil
+}
+
+func (s *session) kickClientGracefully(clientID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	curClient, ok := s.clients[clientID]
+	if !ok {
+		return fmt.Errorf("failed to find client in kickClientGracefully")
+	}
+
+	infoPayload := base.GenerateInfo(info.Info_INFO_REQ_ACK, "goodbye...")
+	payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
+	if err == nil {
+		writeCtx, cancel := context.WithTimeout(context.Background(), clientKickTimeout)
+		s.writeToClient(writeCtx, curClient.conn, payload)
+		cancel()
+	}
+
+	s.pipeline.Unsubscribe(curClient.conn)
+	delete(s.clients, clientID)
+	return nil
+}
+
+func (s *session) handleClientIO(ctx context.Context, clientID string) {
+	errChan := make(chan error)
+	client, ok := s.clients[clientID]
+	if !ok {
+		return
+	}
+
+	key := clientUniqID("client_id")
+	procCtx := context.WithValue(ctx, key, clientID)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-errChan:
+			return
+		default:
+			readErrChan := make(chan error, 1)
+			readDataChan := make(chan []byte, 1)
+
+			go func() {
+				read, err := s.readFromClient(ctx, client.conn)
+				if err != nil {
+					// TODO; the heartbeat should detect this error before it occurs
+					if errors.Is(err, utils.ErrConnectionClosed) {
+						log.Println("client has already shutdonw")
+					} else if errors.Is(err, utils.ErrFailedAfterRetries) {
+						log.Println("failed to read from the server")
+					}
+
+					readErrChan <- err
+					return
+				}
+				readDataChan <- read
+			}()
+
+			select {
+			case err := <-readErrChan:
+				// this style is outdated
+				// if errors.Is(err, utils.ErrCtxTimeOut) {
+				// 	continue
+				// }
+				errChan <- err
+				return
+			case read := <-readDataChan:
+				go s.processPayload(procCtx, read, errChan)
+			}
+		}
+	}
+}
+
+func (s *session) processPayload(ctx context.Context, data []byte, errChan chan<- error) {
+	payload, err := base.DecodePayload(data)
+	if err != nil {
+		errChan <- err
+		return
+	}
+
+	switch payload.GetHeader() {
+	case common.Header_HEADER_HEARTBEAT:
+		errChan <- s.handleHeartbeatResp()
+	case common.Header_HEADER_INFO:
+		infoPayload, ok := payload.GetContent().(*base.Payload_Info)
+		if !ok {
+			errChan <- fmt.Errorf("couldn't assert info payload")
+		}
+		errChan <- s.handleClientInfoMsg(ctx, infoPayload)
+	}
+
+}
+
+func (s *session) handleClientInfoMsg(ctx context.Context, infoPayload *base.Payload_Info) error {
+	switch infoPayload.Info.InfoType {
+	case info.Info_INFO_SHUTDOWN:
+		id, ok := ctx.Value(clientUniqID("client_id")).(string)
+		if !ok {
+			return fmt.Errorf("unable to get value")
+		}
+		log.Println("closing client", id)
+		return s.kickClientGracefully(id)
+	}
+
+	return nil
+}
+
+func (*session) handleHeartbeatResp() error {
+
 	return nil
 }

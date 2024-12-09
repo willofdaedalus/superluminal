@@ -11,6 +11,7 @@ import (
 )
 
 type errMessage [2]string
+type clientUniqID string
 
 type sessionClient struct {
 	name    string

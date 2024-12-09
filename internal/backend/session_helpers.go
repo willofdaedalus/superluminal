@@ -48,19 +48,22 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 		log.Println("try no", try)
 
 		tempCtx, cancel := context.WithTimeout(ctx, clientKickTimeout)
-		defer cancel()
 		err := utils.TryWriteCtx(tempCtx, conn, authPayload)
+		cancel()
 		if err != nil {
+			if errors.Is(err, utils.ErrCtxTimeOut) {
+				log.Println("write operation timed out...")
+				continue
+			}
 			// let handleNewConn handle the error; send it upstream
 			return "", err
 		}
 
 		clientResp, err := s.readFromClient(ctx, conn)
 		if err != nil {
-			if errors.Is(err, utils.ErrCtxTimeOut) {
-				continue
-			}
-			// return other errors immediately
+			// if errors.Is(err, utils.ErrCtxTimeOut) {
+			// 	continue
+			// }
 			return "", err
 		}
 		fmt.Println("received", len(clientResp))

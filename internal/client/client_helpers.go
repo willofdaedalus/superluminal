@@ -129,7 +129,9 @@ func (c *client) handleServerShutdown(ctx context.Context) error {
 		case <-time.After(time.Second * 5):
 			continue
 		case <-shutCtx.Done(): // this might not be necessary
-			return ctx.Err()
+			return shutCtx.Err()
+			// case <-ctx.Done():
+			// 	return ctx.Err()
 		}
 	}
 

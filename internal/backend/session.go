@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 	"willofdaedalus/superluminal/internal/payload/base"
@@ -338,7 +339,6 @@ func (s *session) kickClientGracefully(clientID string) error {
 }
 
 func (s *session) handleClientIO(ctx context.Context, clientID string) {
-	errChan := make(chan error)
 	client, ok := s.clients[clientID]
 	if !ok {
 		return
@@ -347,43 +347,55 @@ func (s *session) handleClientIO(ctx context.Context, clientID string) {
 	key := clientUniqID("client_id")
 	procCtx := context.WithValue(ctx, key, clientID)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-errChan:
-			return
-		default:
-			readErrChan := make(chan error, 1)
-			readDataChan := make(chan []byte, 1)
+	readErrChan := make(chan error, 1)
+	readDataChan := make(chan []byte, 1)
+	errChan := make(chan error, 1) // Updated to be properly synchronized
+	var wg sync.WaitGroup
 
-			go func() {
+	defer func() {
+		wg.Wait()      // Wait for all goroutines to finish
+		close(errChan) // Only close after all usage is done
+		close(readErrChan)
+		close(readDataChan)
+	}()
+
+	// Reading goroutine
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
 				read, err := s.readFromClient(ctx, client.conn)
 				if err != nil {
-					// TODO; the heartbeat should detect this error before it occurs
-					if errors.Is(err, utils.ErrConnectionClosed) {
-						log.Println("client has already shutdonw")
-					} else if errors.Is(err, utils.ErrFailedAfterRetries) {
-						log.Println("failed to read from the server")
-					}
-
 					readErrChan <- err
 					return
 				}
 				readDataChan <- read
-			}()
-
-			select {
-			case err := <-readErrChan:
-				// this style is outdated
-				// if errors.Is(err, utils.ErrCtxTimeOut) {
-				// 	continue
-				// }
-				errChan <- err
-				return
-			case read := <-readDataChan:
-				go s.processPayload(procCtx, read, errChan)
 			}
+		}
+	}()
+
+	// Main loop
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case err := <-readErrChan:
+			if errors.Is(err, utils.ErrConnectionClosed) {
+				log.Println("client has already shut down")
+			} else if errors.Is(err, utils.ErrFailedAfterRetries) {
+				log.Println("failed to read from the server")
+			}
+			return // Stop processing for this client
+		case read := <-readDataChan:
+			wg.Add(1)
+			go func(data []byte) {
+				defer wg.Done()
+				s.processPayload(procCtx, data, errChan)
+			}(read)
 		}
 	}
 }

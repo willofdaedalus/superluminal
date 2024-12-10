@@ -69,7 +69,6 @@ func (c *client) ConnectToSession(ctx context.Context, host string) error {
 }
 
 func (c *client) ListenForMessages(errChan chan<- error) {
-	done := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {
 		fmt.Println("cleaning up...")
@@ -80,87 +79,98 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 	}()
 
 	go c.handleSignals()
+	readErrChan := make(chan error, 1)
+	readDataChan := make(chan []byte, 1)
+
 	go func() {
-		readErrChan := make(chan error, 1)
-		readDataChan := make(chan []byte, 1)
+		defer close(readErrChan)
+		defer close(readDataChan)
 
-		defer func() {
-			done <- struct{}{}
-			close(readErrChan)
-			close(readDataChan)
-		}()
 		for {
-			// otherwise this guy blocks and it's an annoying piece of work
-			// since we can't get to the select block
-			go func() {
-				read, err := c.readFromServer(ctx)
-				if err != nil {
-					readErrChan <- err
-					return
-				}
-				readDataChan <- read
-			}()
-
 			select {
 			case <-ctx.Done():
 				return
 			case <-c.exitChan:
 				return
-			case err := <-readErrChan:
-				log.Println("critical error: ", err)
-				errChan <- err
-				return
-			case read := <-readDataChan:
-				if err := c.processPayload(ctx, read); err != nil {
-					errChan <- err
-					return
-				}
+			default:
 			}
+
+			read, err := c.readFromServer(ctx)
+			if err != nil {
+				readErrChan <- err
+				return
+			}
+			readDataChan <- read
 		}
 	}()
-	<-done
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.exitChan:
+			return
+		case err := <-readErrChan:
+			log.Println("critical error: ", err)
+			errChan <- err
+			return
+		case read := <-readDataChan:
+			go c.processPayload(ctx, read, errChan)
+		}
+	}
 }
 
-func (c *client) processPayload(ctx context.Context, data []byte) error {
+func (c *client) processPayload(ctx context.Context, data []byte, errChan chan<- error) {
+	procCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	payload, err := base.DecodePayload(data)
 	if err != nil {
-		return err
+		errChan <- err
+		return
 	}
 
 	switch payload.GetHeader() {
 	case common.Header_HEADER_ERROR:
 		errPayload, ok := payload.GetContent().(*base.Payload_Error)
 		if ok {
-			return c.handleErrPayload(*errPayload)
+			errChan <- c.handleErrPayload(*errPayload)
+			return
 		}
 
 	case common.Header_HEADER_AUTH:
 		// we only need to check its type but we won't use the actual payload
 		_, ok := payload.GetContent().(*base.Payload_Auth)
 		if ok {
-			return c.handleAuthPayload(ctx)
+			errChan <- c.handleAuthPayload(procCtx)
+			return
 		}
 
 	case common.Header_HEADER_INFO:
 		infoPayload, ok := payload.GetContent().(*base.Payload_Info)
 		if ok {
-			return c.handleInfoPayload(ctx, *infoPayload)
+			errChan <- c.handleInfoPayload(procCtx, *infoPayload)
+			return
 		}
 
 	case common.Header_HEADER_TERMINAL_DATA:
 		termPayload, ok := payload.GetContent().(*base.Payload_TermContent)
 		if ok {
-			return c.handleTermPayload(*termPayload)
+			errChan <- c.handleTermPayload(*termPayload)
+			return
 		}
 
 	case common.Header_HEADER_HEARTBEAT:
 		_, ok := payload.GetContent().(*base.Payload_Heartbeat)
 		if ok {
-			return c.handleHeartbeatPayload()
+			errChan <- c.handleHeartbeatPayload()
+			return
 		}
 	default:
+		// temporary solution
 		fmt.Print(string(data))
 	}
 
-	return utils.ErrUnspecifiedPayload
+	errChan <- utils.ErrUnspecifiedPayload
+	return
 }

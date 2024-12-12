@@ -90,6 +90,7 @@ func (s *session) Start() error {
 	defer func() {
 		s.pipeline.Close()
 		cancel()
+		s.End()
 		// defer close(doneChan)
 		close(errChan)
 	}()
@@ -112,7 +113,7 @@ func (s *session) Start() error {
 		return nil
 	case <-ctx.Done():
 		fmt.Println("exiting by context done...")
-		return s.End()
+		// return s.End()
 	}
 
 	return nil

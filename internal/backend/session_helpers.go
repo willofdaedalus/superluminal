@@ -10,6 +10,7 @@ import (
 	"willofdaedalus/superluminal/internal/payload/auth"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
+	"willofdaedalus/superluminal/internal/payload/info"
 	"willofdaedalus/superluminal/internal/utils"
 )
 
@@ -78,13 +79,13 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 			return "", utils.ErrInvalidHeader
 		}
 
-		// we expect an auth response; anything else is an error
-		// TODO; possible scenario where the client cancels and sends a shutdown message
-		// might cause this check to fail...
-		authResp, _ := authPayload.Content.(*base.Payload_Auth).Auth.AuthType.(*auth.Authentication_Response)
-		// if !ok {
-		// 	return
-		// }
+		authResp, ok := authPayload.Content.(*base.Payload_Auth).Auth.AuthType.(*auth.Authentication_Response)
+		if !ok {
+			if authPayload.Content.(*base.Payload_Info).Info.InfoType == info.Info_INFO_SHUTDOWN {
+				return "", utils.ErrClientEarlyExit
+			}
+			return "", fmt.Errorf("received wrong response")
+		}
 
 		if utils.CheckPassphrase(s.hash, authResp.Response.GetPassphrase()) {
 			return authResp.Response.GetUsername(), nil

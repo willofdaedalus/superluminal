@@ -284,10 +284,14 @@ func (s *session) End() error {
 func (s *session) handleNewConn(ctx context.Context, conn net.Conn) (string, error) {
 	name, err := s.authenticateClient(ctx, conn)
 	if err != nil {
-		s.kickAndCloseClient(ctx,
-			conn,
-			err1.ErrorMessage_ERROR_AUTH_FAILED, []string{"failed_auth", "couldn't pass auth"},
-		)
+		if !errors.Is(err, utils.ErrClientEarlyExit) {
+			s.kickAndCloseClient(ctx,
+				conn,
+				err1.ErrorMessage_ERROR_AUTH_FAILED, []string{"failed_auth", "couldn't pass auth"},
+			)
+		}
+
+		conn.Close()
 		return "", err
 	}
 
@@ -350,17 +354,17 @@ func (s *session) handleClientIO(ctx context.Context, clientID string) {
 
 	readErrChan := make(chan error, 1)
 	readDataChan := make(chan []byte, 1)
-	errChan := make(chan error, 1) // Updated to be properly synchronized
+	errChan := make(chan error, 1)
 	var wg sync.WaitGroup
 
 	defer func() {
-		wg.Wait()      // Wait for all goroutines to finish
-		close(errChan) // Only close after all usage is done
+		wg.Wait()      // wait for all goroutines to finish
+		close(errChan) // only close after all usage is done
 		close(readErrChan)
 		close(readDataChan)
 	}()
 
-	// Reading goroutine
+	// reading goroutine
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -379,7 +383,7 @@ func (s *session) handleClientIO(ctx context.Context, clientID string) {
 		}
 	}()
 
-	// Main loop
+	// main loop
 	for {
 		select {
 		case <-ctx.Done():

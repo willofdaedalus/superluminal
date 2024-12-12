@@ -18,6 +18,7 @@ var (
 	ErrInvalidHeader        = errors.New("sprlmnl: invalid server header")
 	ErrDeadlineUnsuccessful = errors.New("sprlmnl: couldn't set deadline for operation")
 	ErrClientFailedAuth     = errors.New("sprlmnl: entered wrong passphrase")
+	ErrClientEarlyExit      = errors.New("sprlmnl: client wants out")
 	ErrFailedAfterRetries   = errors.New("sprlmnl: couldn't send message after retries")
 	ErrUnknownHeader        = errors.New("sprlmnl: unknown server header")
 	ErrLongWait             = errors.New("sprlmnl: waited too long for input")

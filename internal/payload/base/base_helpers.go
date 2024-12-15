@@ -78,6 +78,8 @@ func GetPayloadType(payload isPayload_Content) PayloadType {
 		return PayloadInfo
 	case *Payload_Heartbeat:
 		return PayloadHeartbeat
+	case *Payload_Error:
+		return PayloadError
 	default:
 		return PayloadUnknown
 	}

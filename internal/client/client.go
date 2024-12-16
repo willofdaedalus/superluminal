@@ -71,22 +71,30 @@ func (c *client) ConnectToSession(ctx context.Context, host string) error {
 func (c *client) ListenForMessages(errChan chan<- error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {
-		fmt.Println("cleaning up...")
 		c.startCleanup(ctx)
 		cancel()
-		fmt.Println("done cleaning")
 		close(errChan)
 	}()
-
 	go c.handleSignals()
+
 	readErrChan := make(chan error, 1)
 	readDataChan := make(chan []byte, 1)
 
+	// Use a WaitGroup to ensure the read goroutine completes
+	var wg sync.WaitGroup
+	wg.Add(1)
+
 	go func() {
-		defer close(readErrChan)
-		defer close(readDataChan)
+		defer func() {
+			close(readErrChan)
+			close(readDataChan)
+			c.exitChan <- struct{}{}
+			wg.Done()
+			fmt.Println("exiting from read goroutine")
+		}()
 
 		for {
+			// Check context and exit conditions first
 			select {
 			case <-ctx.Done():
 				return
@@ -95,25 +103,42 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 			default:
 			}
 
-			read, err := c.readFromServer(ctx)
-			if err != nil {
-				readErrChan <- err
+			// Use a timeout to prevent continuous spinning
+			select {
+			case <-ctx.Done():
 				return
+			case <-c.exitChan:
+				return
+			case <-time.After(100 * time.Millisecond):
+				read, err := c.readFromServer(ctx)
+				if err != nil {
+					readErrChan <- err
+					return
+				}
+
+				if read != nil {
+					readDataChan <- read
+				}
 			}
-			readDataChan <- read
 		}
 	}()
 
 	for {
 		select {
 		case <-ctx.Done():
+			wg.Wait()
 			return
 		case <-c.exitChan:
+			log.Println("exiting from exitChan channel")
+			wg.Wait()
 			return
 		case err := <-readErrChan:
-			log.Println("critical error: ", err)
-			errChan <- err
-			return
+			if err != nil {
+				log.Println("critical error: ", err)
+				errChan <- err
+				wg.Wait()
+				return
+			}
 		case read := <-readDataChan:
 			go c.processPayload(ctx, read, errChan)
 		}
@@ -134,6 +159,7 @@ func (c *client) processPayload(ctx context.Context, data []byte, errChan chan<-
 	case common.Header_HEADER_ERROR:
 		errPayload, ok := payload.GetContent().(*base.Payload_Error)
 		if ok {
+			log.Println("got a header error")
 			errChan <- c.handleErrPayload(*errPayload)
 			return
 		}

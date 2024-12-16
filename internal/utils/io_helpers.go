@@ -101,7 +101,6 @@ func TryWriteCtx(ctx context.Context, conn net.Conn, data []byte) error {
 func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 	var data bytes.Buffer
 	buf := make([]byte, MaxPayloadSize)
-
 	for tries := 0; tries < maxTries; tries++ {
 		// Exit if the context is canceled
 		select {
@@ -124,11 +123,6 @@ func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 
 		// attempt to read from the connection
 		n, err := conn.Read(buf)
-		if n > 0 {
-			data.Write(buf[:n])
-		}
-
-		// handle errors
 		if err != nil {
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				return nil, err
@@ -136,7 +130,6 @@ func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 			if errors.Is(err, io.EOF) {
 				return nil, ErrConnectionClosed
 			}
-
 			// backoff before retrying
 			retryTime := time.Second * (1 << uint(tries))
 			select {
@@ -147,12 +140,14 @@ func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 			}
 		}
 
-		// successful read
-		conn.SetReadDeadline(time.Time{})
-		home, _ := os.UserHomeDir()
-		LogBytes("read", home+"/superluminal.log", data.Bytes())
-		return data.Bytes(), nil
+		// only write and return if we actually read something
+		if n > 0 {
+			data.Write(buf[:n])
+			conn.SetReadDeadline(time.Time{})
+			home, _ := os.UserHomeDir()
+			LogBytes("read", home+"/superluminal.log", data.Bytes())
+			return data.Bytes(), nil
+		}
 	}
-
 	return nil, ErrFailedAfterRetries
 }

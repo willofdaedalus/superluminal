@@ -133,6 +133,7 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 
 		conn, err := s.listener.Accept()
 		if err != nil {
+			// NOTE; review these lines of code
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
@@ -142,7 +143,7 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 		}
 
 		// upon successful connection
-		go func(conn net.Conn) {
+		go func(ctx context.Context, conn net.Conn) {
 			fmt.Println("new connection...")
 			if len(s.clients) >= int(s.maxConns) {
 				tempCtx, tempCancel := context.WithTimeout(ctx, clientKickTimeout)
@@ -175,15 +176,8 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 				return
 			}
 
-			clientID, err := s.handleNewConn(ctx, conn)
-			if err != nil {
-				errChan <- err
-				idChan <- ""
-				return
-			}
-
-			idChan <- clientID
-		}(conn)
+			idChan <- s.handleNewConn(ctx, conn)
+		}(ctx, conn)
 
 		// probably not the best way to go at this but a check in handleClientIO
 		// will return early if idChan passes an empty string due to an error
@@ -191,13 +185,14 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 	}
 }
 
-func (s *session) kickAndCloseClient(
+func (s *session) kickClient(
 	ctx context.Context, conn net.Conn, errType err1.ErrorMessage_ErrorCode, details []string) {
 	kickCtx, cancel := context.WithTimeout(ctx, clientKickTimeout)
-	defer func() {
-		cancel()
-		conn.Close()
-	}()
+	defer cancel()
+	// defer func() {
+	// 	cancel()
+	// 	conn.Close()
+	// }()
 
 	errPayload := base.GenerateError(errType, []byte(details[0]), []byte(details[1]))
 	payload, err := base.EncodePayload(common.Header_HEADER_ERROR, errPayload)
@@ -281,18 +276,20 @@ func (s *session) End() error {
 	return nil
 }
 
-func (s *session) handleNewConn(ctx context.Context, conn net.Conn) (string, error) {
+func (s *session) handleNewConn(ctx context.Context, conn net.Conn) string {
 	name, err := s.authenticateClient(ctx, conn)
 	if err != nil {
-		if !errors.Is(err, utils.ErrClientEarlyExit) {
-			s.kickAndCloseClient(ctx,
-				conn,
-				err1.ErrorMessage_ERROR_AUTH_FAILED, []string{"failed_auth", "couldn't pass auth"},
-			)
-		}
+		// if errors.Is(err, utils.ErrClientEarlyExit) {
+		// 	conn.Close()
+		// } else if errors.Is(err, utils.ErrFailedServerAuth) {
+		s.kickClient(ctx,
+			conn,
+			err1.ErrorMessage_ERROR_AUTH_FAILED, []string{"failed_auth", "couldn't pass auth"},
+		)
+		log.Println("sent failed_auth message")
+		// }
 
-		conn.Close()
-		return "", err
+		return ""
 	}
 
 	s.mu.Lock()
@@ -306,19 +303,16 @@ func (s *session) handleNewConn(ctx context.Context, conn net.Conn) (string, err
 	infoPayload := base.GenerateInfo(info.Info_INFO_AUTH_SUCCESS, "welcome to the session")
 	payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
 	if err != nil {
-		return "", fmt.Errorf("failed to encode welcome payload: %w", err)
+		return ""
 	}
 
 	err = s.writeToClient(ctx, conn, payload)
 	if err != nil {
-		if errors.Is(err, io.EOF) {
-			return "", fmt.Errorf("client disconnected: %w", err)
-		}
-		return "", fmt.Errorf("failed to send welcome message: %w", err)
+		return ""
 	}
 
 	log.Println("hello client", newClient.uuid)
-	return newClient.uuid, nil
+	return newClient.uuid
 }
 
 func (s *session) kickClientGracefully(clientID string) error {

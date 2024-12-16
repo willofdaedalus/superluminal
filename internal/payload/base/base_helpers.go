@@ -3,7 +3,6 @@ package base
 import (
 	"fmt"
 	"hash/crc32"
-	"log"
 	"time"
 	"willofdaedalus/superluminal/internal/payload/auth"
 	"willofdaedalus/superluminal/internal/payload/common"
@@ -104,13 +103,13 @@ func DecodePayload(data []byte) (*Payload, error) {
 	var payload Payload
 
 	if data == nil {
-		// return nil, fmt.Errorf("can't decode nil/empty data bytes")
-		log.Fatal("can't decode nil data bytes")
+		return nil, fmt.Errorf("can't decode nil data bytes")
+		// log.Fatal("can't decode nil data bytes")
 	}
 
 	if len(data) == 0 {
-		// return nil, fmt.Errorf("can't decode nil/empty data bytes")
-		log.Fatal("can't decode empty data bytes")
+		return nil, fmt.Errorf("can't decode empty data bytes")
+		// log.Fatal("can't decode empty data bytes")
 	}
 
 	err := proto.Unmarshal(data, &payload)

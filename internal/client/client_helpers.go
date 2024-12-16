@@ -34,9 +34,9 @@ func (c *client) handleErrPayload(payload base.Payload_Error) error {
 		c.exitChan <- struct{}{}
 		return utils.ErrServerFull
 	case err1.ErrorMessage_ERROR_AUTH_FAILED:
-		// this doesn't print anyway because the prompt is blocking
-		// by the time the server sends a message
-		// log.Println(string(payload.Error.GetDetail()))
+		// let the client handle closing
+		log.Println(string(payload.Error.GetDetail()))
+		c.exitChan <- struct{}{}
 		return utils.ErrClientFailedAuth
 	}
 
@@ -162,7 +162,6 @@ func (c *client) handleTermPayload(payload base.Payload_TermContent) error {
 }
 
 func (c *client) startCleanup(ctx context.Context) {
-	fmt.Println("exiting with cleanup")
 	cleanCtx, cancel := context.WithTimeout(ctx, cleanupTime)
 
 	// safely close connections and channels

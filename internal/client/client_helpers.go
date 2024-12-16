@@ -3,9 +3,11 @@ package client
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -221,10 +223,51 @@ func (c *client) writeToServer(ctx context.Context, data []byte) error {
 	return utils.TryWriteCtx(ctx, c.serverConn, data)
 }
 
-// readFromServer provides a way to synchronize reads across the client
 func (c *client) readFromServer(ctx context.Context) ([]byte, error) {
 	c.tracker.IncrementRead()
 	defer c.tracker.DecrementRead()
+	readCtx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
 
-	return utils.TryReadCtx(ctx, c.serverConn)
+	// Set a read deadline if context has a timeout
+	if deadline, ok := readCtx.Deadline(); ok {
+		if err := c.serverConn.SetReadDeadline(deadline); err != nil {
+			return nil, fmt.Errorf("failed to set read deadline: %w", err)
+		}
+	}
+
+	// Read initial header
+	headerBuffer := make([]byte, 4)
+	if _, err := io.ReadFull(c.serverConn, headerBuffer); err != nil {
+		return nil, fmt.Errorf("header read error: %w", err)
+	}
+
+	// Extract payload length
+	payloadLen := binary.BigEndian.Uint32(headerBuffer)
+
+	// Sanity check on payload length
+	if payloadLen > utils.MaxPayloadSize {
+		return nil, fmt.Errorf("payload length exceeds maximum allowed size: %d", payloadLen)
+	}
+
+	// Log payload size for debugging
+	log.Printf("Reading payload of size: %d bytes", payloadLen)
+
+	// Allocate space for the full payload
+	actualPayload := make([]byte, payloadLen)
+
+	// Use io.ReadFull to read the entire payload
+	if _, err := io.ReadFull(c.serverConn, actualPayload); err != nil {
+		return nil, fmt.Errorf("payload read error: %w", err)
+	}
+
+	return actualPayload, nil
 }
+
+// // readFromServer provides a way to synchronize reads across the client
+// func (c *client) readFromServer(ctx context.Context) ([]byte, error) {
+// 	c.tracker.IncrementRead()
+// 	defer c.tracker.DecrementRead()
+
+// 	return utils.TryReadCtx(ctx, c.serverConn)
+// }

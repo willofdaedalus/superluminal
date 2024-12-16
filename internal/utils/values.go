@@ -1,5 +1,5 @@
 package utils
 
 const (
-	MaxPayloadSize = 4096 // 4kb
+	MaxPayloadSize = 1024 * 1024
 )

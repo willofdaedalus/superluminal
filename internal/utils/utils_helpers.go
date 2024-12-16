@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 	"time"
@@ -31,4 +32,14 @@ func SafeClose[T any](ch chan T) {
 	default:
 		close(ch)
 	}
+}
+
+func PrependLength(payload []byte) []byte {
+	pLen := len(payload)
+	header := make([]byte, 4)
+
+	binary.BigEndian.PutUint32(header, uint32(pLen))
+	message := append(header, payload...)
+
+	return message
 }

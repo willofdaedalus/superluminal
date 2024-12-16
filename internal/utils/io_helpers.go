@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -19,22 +17,6 @@ const (
 	MaxBackoffTime = time.Second * 7
 	maxTries       = 5
 )
-
-type WriteStruct struct {
-	Conn     net.Conn
-	MaxTries int
-	HdrVal   int
-	HdrMsg   int
-	Message  []byte
-}
-
-func (ws *WriteStruct) headerMsgByte() []byte {
-	hdr := strconv.Itoa(ws.HdrVal)
-	msg := strconv.Itoa(ws.HdrMsg)
-	fin := fmt.Sprintf("%s+%s", hdr, msg)
-
-	return []byte(fin)
-}
 
 // TryWriteCtx attempts to write to the conn passed and retries up to a number of times
 // defined until it gives up and returns an error

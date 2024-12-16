@@ -75,7 +75,9 @@ func (p *Pipeline) Start() {
 							continue
 						}
 
-						_, writeErr := conn.Write(payload)
+						// prepend the length of the payload to the payload
+						send := utils.PrependLength(payload)
+						_, writeErr := conn.Write(send)
 						if writeErr != nil {
 							fmt.Printf("Error writing to consumer: %v\n", writeErr)
 							// consider removing the failing consumer

@@ -49,8 +49,7 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 		log.Println("try no", try)
 
 		tempCtx, cancel := context.WithTimeout(ctx, clientKickTimeout)
-		newPayload := utils.PrependLength(authPayload)
-		err := utils.TryWriteCtx(tempCtx, conn, newPayload)
+		err := s.writeToClient(tempCtx, conn, authPayload)
 		cancel()
 		if err != nil {
 			if errors.Is(err, utils.ErrCtxTimeOut) {
@@ -61,7 +60,7 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 			return "", err
 		}
 
-		clientResp, err := s.readFromClient(ctx, conn)
+		clientResp, err := utils.ReadFull(ctx, conn, s.tracker)
 		if err != nil {
 			// if errors.Is(err, utils.ErrCtxTimeOut) {
 			// 	continue
@@ -117,13 +116,6 @@ func (s *session) writeToClient(ctx context.Context, conn net.Conn, data []byte)
 	s.tracker.IncrementWrite()
 	defer s.tracker.DecrementWrite()
 
-	return utils.TryWriteCtx(ctx, conn, data)
-}
-
-// readFromClient provides a way to synchronize reads across the server
-func (s *session) readFromClient(ctx context.Context, conn net.Conn) ([]byte, error) {
-	s.tracker.IncrementRead()
-	defer s.tracker.DecrementRead()
-
-	return utils.TryReadCtx(ctx, conn)
+	payload := utils.PrependLength(data)
+	return utils.TryWriteCtx(ctx, conn, payload)
 }

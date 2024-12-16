@@ -223,6 +223,7 @@ func (c *client) writeToServer(ctx context.Context, data []byte) error {
 	return utils.TryWriteCtx(ctx, c.serverConn, data)
 }
 
+// make this a generic function
 func (c *client) readFromServer(ctx context.Context) ([]byte, error) {
 	c.tracker.IncrementRead()
 	defer c.tracker.DecrementRead()

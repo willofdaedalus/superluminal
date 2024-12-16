@@ -3,7 +3,9 @@ package utils
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -132,4 +134,34 @@ func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 		}
 	}
 	return nil, ErrFailedAfterRetries
+}
+
+func ReadFull(ctx context.Context, conn net.Conn, tracker *SyncTracker) ([]byte, error) {
+	tracker.IncrementRead()
+	defer tracker.DecrementRead()
+
+	// Read initial header
+	headerBuffer := make([]byte, 4)
+	n, err := io.ReadFull(conn, headerBuffer)
+	if err != nil {
+		log.Printf("Failed to read header: error=%v, bytes_read=%d", err, n)
+		return nil, fmt.Errorf("failed to read header: %w", err)
+	}
+
+	payloadLen := binary.BigEndian.Uint32(headerBuffer)
+
+	// Sanity check on payload length
+	if payloadLen > MaxPayloadSize {
+		return nil, fmt.Errorf("payload length exceeds maximum allowed size: %d", payloadLen)
+	}
+
+	// Allocate space for the full payload
+	actualPayload := make([]byte, payloadLen)
+
+	// Use io.ReadFull to read the entire payload
+	if _, err := io.ReadFull(conn, actualPayload); err != nil {
+		return nil, fmt.Errorf("failed to read full payload: %w", err)
+	}
+
+	return actualPayload, nil
 }

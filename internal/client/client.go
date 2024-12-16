@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"strings"
 	"sync"
 	"time"
 	"willofdaedalus/superluminal/internal/payload/base"
@@ -60,23 +59,11 @@ func (c *client) ConnectToSession(ctx context.Context, host string) error {
 	if err != nil {
 		log.Printf("Connection FAILED - detailed error: %+v", err)
 
-		// Comprehensive error logging
 		switch {
 		case errors.Is(err, io.EOF):
 			log.Println("Server appears to have shutdown")
 		case errors.Is(err, context.DeadlineExceeded):
 			log.Println("Connection attempt timed out")
-		}
-
-		// Network error specifics
-		if netErr, ok := err.(net.Error); ok {
-			log.Printf("Network Error Details:\n"+
-				"  Timeout: %v\n"+
-				"  Temporary: %v\n"+
-				"  Connection Refused: %v",
-				netErr.Timeout(),
-				netErr.Temporary(),
-				strings.Contains(netErr.Error(), "connection refused"))
 		}
 
 		return err
@@ -132,7 +119,7 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 			case <-c.exitChan:
 				return
 			case <-time.After(100 * time.Millisecond):
-				read, err := c.readFromServer(ctx)
+				read, err := utils.ReadFull(ctx, c.serverConn, c.tracker)
 				if err != nil {
 					readErrChan <- err
 					return

@@ -162,8 +162,6 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 				}
 
 				// need a minute to write to the client; if it's not possible don't bother
-				errPayload = utils.PrependLength(errPayload)
-				fmt.Println(errPayload[:4])
 				err = s.writeToClient(tempCtx, conn, errPayload)
 				if err != nil {
 					if errors.Is(err, io.EOF) {
@@ -202,8 +200,6 @@ func (s *session) kickClient(
 		return
 	}
 
-	payload = utils.PrependLength(payload)
-	fmt.Println(payload[:4])
 	err = s.writeToClient(kickCtx, conn, payload)
 	if err != nil {
 		return
@@ -258,8 +254,6 @@ func (s *session) End() error {
 					return err
 				}
 
-				payload = utils.PrependLength(payload)
-				fmt.Println(payload[:4])
 				// attempt to send shutdown message
 				err = s.writeToClient(gCtx, client.conn, payload)
 				if err != nil &&
@@ -312,8 +306,6 @@ func (s *session) handleNewConn(ctx context.Context, conn net.Conn) string {
 		return ""
 	}
 
-	payload = utils.PrependLength(payload)
-	fmt.Println(payload[:4])
 	err = s.writeToClient(ctx, conn, payload)
 	if err != nil {
 		return ""
@@ -336,8 +328,6 @@ func (s *session) kickClientGracefully(clientID string) error {
 	payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
 	if err == nil {
 		writeCtx, cancel := context.WithTimeout(context.Background(), clientKickTimeout)
-		payload = utils.PrependLength(payload)
-		fmt.Println(payload[:4])
 		s.writeToClient(writeCtx, curClient.conn, payload)
 		cancel()
 	}
@@ -377,7 +367,7 @@ func (s *session) handleClientIO(ctx context.Context, clientID string) {
 			case <-ctx.Done():
 				return
 			default:
-				read, err := s.readFromClient(ctx, client.conn)
+				read, err := utils.ReadFull(ctx, client.conn, s.tracker)
 				if err != nil {
 					readErrChan <- err
 					return

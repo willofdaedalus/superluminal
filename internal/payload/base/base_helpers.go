@@ -114,7 +114,7 @@ func DecodePayload(data []byte) (*Payload, error) {
 
 	err := proto.Unmarshal(data, &payload)
 	if err != nil {
-		return nil, fmt.Errorf("decode err: %v", err)
+		return nil, err
 	}
 
 	return &payload, nil

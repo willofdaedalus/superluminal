@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 	"willofdaedalus/superluminal/internal/payload/base"
@@ -50,21 +51,42 @@ func (c *client) ConnectToSession(ctx context.Context, host string) error {
 	var dialer net.Dialer
 	var err error
 
-	dialCtx, cancel := context.WithTimeout(ctx, time.Second*10)
+	log.Printf("Attempting to connect to host: %s", host)
+
+	dialCtx, cancel := context.WithTimeout(ctx, time.Second*30)
 	defer cancel()
 
 	c.serverConn, err = dialer.DialContext(dialCtx, "tcp", host)
 	if err != nil {
-		if errors.Is(err, io.EOF) {
-			log.Println("server has already shutdown")
+		log.Printf("Connection FAILED - detailed error: %+v", err)
+
+		// Comprehensive error logging
+		switch {
+		case errors.Is(err, io.EOF):
+			log.Println("Server appears to have shutdown")
+		case errors.Is(err, context.DeadlineExceeded):
+			log.Println("Connection attempt timed out")
 		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			log.Println("timeout exceeded when dialling server")
+
+		// Network error specifics
+		if netErr, ok := err.(net.Error); ok {
+			log.Printf("Network Error Details:\n"+
+				"  Timeout: %v\n"+
+				"  Temporary: %v\n"+
+				"  Connection Refused: %v",
+				netErr.Timeout(),
+				netErr.Temporary(),
+				strings.Contains(netErr.Error(), "connection refused"))
 		}
+
 		return err
 	}
 
-	fmt.Printf("connecting to server at %s...\n", host)
+	// Add more connection verification
+	log.Printf("Connection SUCCESSFUL to %s\n", host)
+	log.Printf("Local Address: %v\n", c.serverConn.LocalAddr())
+	log.Printf("Remote Address: %v\n", c.serverConn.RemoteAddr())
+
 	return nil
 }
 
@@ -151,6 +173,8 @@ func (c *client) processPayload(ctx context.Context, data []byte, errChan chan<-
 
 	payload, err := base.DecodePayload(data)
 	if err != nil {
+		fmt.Println(len(data))
+		fmt.Printf("what the fuck %v", err)
 		errChan <- err
 		return
 	}

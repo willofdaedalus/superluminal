@@ -37,9 +37,7 @@ func SafeClose[T any](ch chan T) {
 func PrependLength(payload []byte) []byte {
 	pLen := len(payload)
 	header := make([]byte, 4)
-
 	binary.BigEndian.PutUint32(header, uint32(pLen))
 	message := append(header, payload...)
-
 	return message
 }

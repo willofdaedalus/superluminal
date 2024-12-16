@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	//passEntryTimeout = time.Minute * 2
-	passEntryTimeout   = time.Second * 5
+	passEntryTimeout = time.Minute * 5
+	// passEntryTimeout   = time.Second * 5
 	cleanupTime        = time.Second * 30
 	serverShutdownTime = time.Second * 20
 )
@@ -226,23 +226,15 @@ func (c *client) writeToServer(ctx context.Context, data []byte) error {
 func (c *client) readFromServer(ctx context.Context) ([]byte, error) {
 	c.tracker.IncrementRead()
 	defer c.tracker.DecrementRead()
-	readCtx, cancel := context.WithTimeout(ctx, time.Second*5)
-	defer cancel()
-
-	// Set a read deadline if context has a timeout
-	if deadline, ok := readCtx.Deadline(); ok {
-		if err := c.serverConn.SetReadDeadline(deadline); err != nil {
-			return nil, fmt.Errorf("failed to set read deadline: %w", err)
-		}
-	}
 
 	// Read initial header
 	headerBuffer := make([]byte, 4)
-	if _, err := io.ReadFull(c.serverConn, headerBuffer); err != nil {
-		return nil, fmt.Errorf("header read error: %w", err)
+	n, err := io.ReadFull(c.serverConn, headerBuffer)
+	if err != nil {
+		log.Printf("Failed to read header: error=%v, bytes_read=%d", err, n)
+		return nil, fmt.Errorf("failed to read header: %w", err)
 	}
 
-	// Extract payload length
 	payloadLen := binary.BigEndian.Uint32(headerBuffer)
 
 	// Sanity check on payload length
@@ -250,15 +242,12 @@ func (c *client) readFromServer(ctx context.Context) ([]byte, error) {
 		return nil, fmt.Errorf("payload length exceeds maximum allowed size: %d", payloadLen)
 	}
 
-	// Log payload size for debugging
-	log.Printf("Reading payload of size: %d bytes", payloadLen)
-
 	// Allocate space for the full payload
 	actualPayload := make([]byte, payloadLen)
 
 	// Use io.ReadFull to read the entire payload
 	if _, err := io.ReadFull(c.serverConn, actualPayload); err != nil {
-		return nil, fmt.Errorf("payload read error: %w", err)
+		return nil, fmt.Errorf("failed to read full payload: %w", err)
 	}
 
 	return actualPayload, nil

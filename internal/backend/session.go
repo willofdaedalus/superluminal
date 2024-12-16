@@ -40,7 +40,7 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 	var reader bytes.Reader
 	clients := make(map[string]*sessionClient, maxConns)
 
-	listener, err := net.Listen("tcp", ":42024") // Listen on all interfaces (IPv4)
+	listener, err := net.Listen("tcp", "0.0.0.0:42024")
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +162,8 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 				}
 
 				// need a minute to write to the client; if it's not possible don't bother
+				errPayload = utils.PrependLength(errPayload)
+				fmt.Println(errPayload[:4])
 				err = s.writeToClient(tempCtx, conn, errPayload)
 				if err != nil {
 					if errors.Is(err, io.EOF) {
@@ -200,6 +202,8 @@ func (s *session) kickClient(
 		return
 	}
 
+	payload = utils.PrependLength(payload)
+	fmt.Println(payload[:4])
 	err = s.writeToClient(kickCtx, conn, payload)
 	if err != nil {
 		return
@@ -254,6 +258,8 @@ func (s *session) End() error {
 					return err
 				}
 
+				payload = utils.PrependLength(payload)
+				fmt.Println(payload[:4])
 				// attempt to send shutdown message
 				err = s.writeToClient(gCtx, client.conn, payload)
 				if err != nil &&
@@ -306,6 +312,8 @@ func (s *session) handleNewConn(ctx context.Context, conn net.Conn) string {
 		return ""
 	}
 
+	payload = utils.PrependLength(payload)
+	fmt.Println(payload[:4])
 	err = s.writeToClient(ctx, conn, payload)
 	if err != nil {
 		return ""
@@ -328,6 +336,8 @@ func (s *session) kickClientGracefully(clientID string) error {
 	payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
 	if err == nil {
 		writeCtx, cancel := context.WithTimeout(context.Background(), clientKickTimeout)
+		payload = utils.PrependLength(payload)
+		fmt.Println(payload[:4])
 		s.writeToClient(writeCtx, curClient.conn, payload)
 		cancel()
 	}

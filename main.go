@@ -62,10 +62,11 @@ func main() {
 
 		// err := client.ConnectToSession(ctx, "localhost", "42024")
 		err := client.ConnectToSession(ctx, addr)
-
 		if err != nil {
 			log.Fatal(err.Error())
 		}
+
+		fmt.Println("connected to server...")
 
 		go func() {
 			client.ListenForMessages(errChan)

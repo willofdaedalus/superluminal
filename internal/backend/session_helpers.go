@@ -49,7 +49,8 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 		log.Println("try no", try)
 
 		tempCtx, cancel := context.WithTimeout(ctx, clientKickTimeout)
-		err := utils.TryWriteCtx(tempCtx, conn, authPayload)
+		newPayload := utils.PrependLength(authPayload)
+		err := utils.TryWriteCtx(tempCtx, conn, newPayload)
 		cancel()
 		if err != nil {
 			if errors.Is(err, utils.ErrCtxTimeOut) {

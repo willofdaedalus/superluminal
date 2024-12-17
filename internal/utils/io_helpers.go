@@ -165,3 +165,11 @@ func ReadFull(ctx context.Context, conn net.Conn, tracker *SyncTracker) ([]byte,
 
 	return actualPayload, nil
 }
+
+func WriteFull(ctx context.Context, conn net.Conn, tracker *SyncTracker, data []byte) error {
+	tracker.IncrementWrite()
+	defer tracker.DecrementWrite()
+
+	payload := PrependLength(data)
+	return TryWriteCtx(ctx, conn, payload)
+}

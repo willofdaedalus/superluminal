@@ -79,6 +79,7 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 			return "", utils.ErrInvalidHeader
 		}
 
+		// extract an auth response
 		authResp, ok := authPayload.Content.(*base.Payload_Auth).Auth.AuthType.(*auth.Authentication_Response)
 		if !ok {
 			if authPayload.Content.(*base.Payload_Info).Info.InfoType == info.Info_INFO_SHUTDOWN {

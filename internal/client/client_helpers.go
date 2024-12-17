@@ -85,7 +85,7 @@ func (c *client) handleAuthPayload(ctx context.Context) error {
 		return err
 	}
 
-	if err := c.writeToServer(authCtx, payload); err != nil {
+	if err := utils.WriteFull(authCtx, c.serverConn, c.tracker, payload); err != nil {
 		return err
 	}
 
@@ -184,7 +184,7 @@ func (c *client) startCleanup(ctx context.Context) {
 		}
 
 		// Use the cleanup context for writing
-		err = c.writeToServer(cleanCtx, payload)
+		err = utils.WriteFull(cleanCtx, c.serverConn, c.tracker, payload)
 		if err != nil {
 			// Log or handle write errors as needed
 			log.Println("Error during shutdown write:", err)
@@ -220,7 +220,8 @@ func (c *client) writeToServer(ctx context.Context, data []byte) error {
 	c.tracker.IncrementWrite()
 	defer c.tracker.DecrementWrite()
 
-	return utils.TryWriteCtx(ctx, c.serverConn, data)
+	payload := utils.PrependLength(data)
+	return utils.TryWriteCtx(ctx, c.serverConn, payload)
 }
 
 // make this a generic function

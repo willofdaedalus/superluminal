@@ -162,7 +162,7 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 				}
 
 				// need a minute to write to the client; if it's not possible don't bother
-				err = s.writeToClient(tempCtx, conn, errPayload)
+				err = utils.WriteFull(tempCtx, conn, s.tracker, errPayload)
 				if err != nil {
 					if errors.Is(err, io.EOF) {
 						log.Println("sprlmnl: client is closed")
@@ -200,7 +200,7 @@ func (s *session) kickClient(
 		return
 	}
 
-	err = s.writeToClient(kickCtx, conn, payload)
+	err = utils.WriteFull(kickCtx, conn, s.tracker, payload)
 	if err != nil {
 		return
 	}
@@ -255,7 +255,7 @@ func (s *session) End() error {
 				}
 
 				// attempt to send shutdown message
-				err = s.writeToClient(gCtx, client.conn, payload)
+				err = utils.WriteFull(gCtx, client.conn, s.tracker, payload)
 				if err != nil &&
 					!errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) {
 					log.Printf("Error sending shutdown message to client: %v", err)
@@ -306,7 +306,7 @@ func (s *session) handleNewConn(ctx context.Context, conn net.Conn) string {
 		return ""
 	}
 
-	err = s.writeToClient(ctx, conn, payload)
+	err = utils.WriteFull(ctx, conn, s.tracker, payload)
 	if err != nil {
 		return ""
 	}
@@ -328,7 +328,7 @@ func (s *session) kickClientGracefully(clientID string) error {
 	payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
 	if err == nil {
 		writeCtx, cancel := context.WithTimeout(context.Background(), clientKickTimeout)
-		s.writeToClient(writeCtx, curClient.conn, payload)
+		utils.WriteFull(writeCtx, curClient.conn, s.tracker, payload)
 		cancel()
 	}
 

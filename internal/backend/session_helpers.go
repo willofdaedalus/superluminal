@@ -49,7 +49,7 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 		log.Println("try no", try)
 
 		tempCtx, cancel := context.WithTimeout(ctx, clientKickTimeout)
-		err := s.writeToClient(tempCtx, conn, authPayload)
+		err := utils.WriteFull(tempCtx, conn, s.tracker, authPayload)
 		cancel()
 		if err != nil {
 			if errors.Is(err, utils.ErrCtxTimeOut) {
@@ -110,13 +110,4 @@ func (s *session) regenPassLoop(ctx context.Context) {
 			return
 		}
 	}
-}
-
-// writeToClient provides a way to synchronize writes across the server
-func (s *session) writeToClient(ctx context.Context, conn net.Conn, data []byte) error {
-	s.tracker.IncrementWrite()
-	defer s.tracker.DecrementWrite()
-
-	payload := utils.PrependLength(data)
-	return utils.TryWriteCtx(ctx, conn, payload)
 }

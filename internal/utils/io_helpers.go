@@ -38,7 +38,7 @@ func TryWriteCtx(ctx context.Context, conn net.Conn, data []byte) error {
 				if errors.Is(err, os.ErrDeadlineExceeded) {
 					return ErrCtxTimeOut
 				}
-				return ErrDeadlineUnsuccessful
+				return ErrSetDeadlineUnsuccessful
 			}
 		}
 
@@ -101,7 +101,7 @@ func TryReadCtx(ctx context.Context, conn net.Conn) ([]byte, error) {
 				if errors.Is(err, os.ErrDeadlineExceeded) {
 					return nil, ErrCtxTimeOut
 				}
-				return nil, ErrDeadlineUnsuccessful
+				return nil, ErrSetDeadlineUnsuccessful
 			}
 		}
 
@@ -140,30 +140,66 @@ func ReadFull(ctx context.Context, conn net.Conn, tracker *SyncTracker) ([]byte,
 	tracker.IncrementRead()
 	defer tracker.DecrementRead()
 
-	// Read initial header
-	headerBuffer := make([]byte, 4)
-	n, err := io.ReadFull(conn, headerBuffer)
-	if err != nil {
-		log.Printf("Failed to read header: error=%v, bytes_read=%d", err, n)
-		return nil, fmt.Errorf("failed to read header: %w", err)
+	done := make(chan struct{})
+	var result []byte
+	var readErr error
+
+	go func() {
+		defer close(done)
+
+		// set the read deadline
+		deadline, ok := ctx.Deadline()
+		if ok {
+			if err := conn.SetReadDeadline(deadline); err != nil {
+				if errors.Is(err, os.ErrDeadlineExceeded) {
+					readErr = ErrCtxTimeOut
+					return
+				}
+				readErr = ErrSetDeadlineUnsuccessful
+				return
+			}
+		}
+
+		// read initial header
+		headerBuffer := make([]byte, 4)
+		n, err := io.ReadFull(conn, headerBuffer)
+		if err != nil {
+			log.Printf("Failed to read header: error=%v, bytes_read=%d", err, n)
+			readErr = io.ErrUnexpectedEOF
+			return
+		}
+
+		payloadLen := binary.BigEndian.Uint32(headerBuffer)
+		// sanity check on payload length
+		if payloadLen > MaxPayloadSize {
+			readErr = fmt.Errorf("payload length exceeds maximum allowed size: %d", payloadLen)
+			return
+		}
+
+		// allocate space for the full payload
+		actualPayload := make([]byte, payloadLen)
+		// use io.readfull to read the entire payload
+		if _, err := io.ReadFull(conn, actualPayload); err != nil {
+			readErr = io.ErrUnexpectedEOF
+			return
+		}
+
+		// reset the read deadline
+		conn.SetReadDeadline(time.Time{})
+		result = actualPayload
+	}()
+
+	// wait for either the context to be done or the read to complete
+	select {
+	case <-ctx.Done():
+		conn.SetReadDeadline(time.Now())
+		<-done
+		return nil, ctx.Err()
+	case <-done:
+		// the goroutine has naturally exited so we can return whatever we
+		// got from the assignments and everything
+		return result, readErr
 	}
-
-	payloadLen := binary.BigEndian.Uint32(headerBuffer)
-
-	// Sanity check on payload length
-	if payloadLen > MaxPayloadSize {
-		return nil, fmt.Errorf("payload length exceeds maximum allowed size: %d", payloadLen)
-	}
-
-	// Allocate space for the full payload
-	actualPayload := make([]byte, payloadLen)
-
-	// Use io.ReadFull to read the entire payload
-	if _, err := io.ReadFull(conn, actualPayload); err != nil {
-		return nil, fmt.Errorf("failed to read full payload: %w", err)
-	}
-
-	return actualPayload, nil
 }
 
 func WriteFull(ctx context.Context, conn net.Conn, tracker *SyncTracker, data []byte) error {

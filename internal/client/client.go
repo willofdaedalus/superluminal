@@ -84,54 +84,61 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 		cancel()
 		close(errChan)
 	}()
-	go c.handleSignals()
 
-	readErrChan := make(chan error, 1)
-	readDataChan := make(chan []byte, 1)
+	go c.handleSignals(ctx)
 
-	// Use a WaitGroup to ensure the read goroutine completes
+	readErr := make(chan error, 1)
+	readData := make(chan []byte, 1)
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	go func() {
+	go func(wg *sync.WaitGroup) {
 		defer func() {
-			close(readErrChan)
-			close(readDataChan)
-			c.exitChan <- struct{}{}
+			close(readErr)
+			close(readData)
 			wg.Done()
 			fmt.Println("exiting from read goroutine")
 		}()
 
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+
 		for {
-			// Check context and exit conditions first
-			select {
-			case <-ctx.Done():
+			// check context cancellation first, before the select
+			if ctx.Err() != nil {
 				return
-			case <-c.exitChan:
-				return
-			default:
 			}
 
-			// Use a timeout to prevent continuous spinning
+			// use a select with a default case to prevent blocking
 			select {
 			case <-ctx.Done():
 				return
-			case <-c.exitChan:
-				return
-			case <-time.After(100 * time.Millisecond):
+			case <-ticker.C:
+				// attempt to read data with a timeout
 				read, err := utils.ReadFull(ctx, c.serverConn, c.tracker)
 				if err != nil {
-					readErrChan <- err
+					select {
+					case readErr <- err:
+					default:
+					}
 					return
 				}
-
 				if read != nil {
-					readDataChan <- read
+					select {
+					case readData <- read:
+					default:
+						fmt.Println("dropped message: readDataChan is full")
+					}
 				}
+			default:
+				// allow immediate context cancellation check
+				time.Sleep(10 * time.Millisecond)
 			}
 		}
-	}()
+	}(&wg)
 
+	// main loop
 	for {
 		select {
 		case <-ctx.Done():
@@ -139,16 +146,24 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 			return
 		case <-c.exitChan:
 			log.Println("exiting from exitChan channel")
+			cancel()
+			fmt.Println("waiting for wg...")
 			wg.Wait()
+			fmt.Println("wg is done")
 			return
-		case err := <-readErrChan:
+		case err := <-readErr:
 			if err != nil {
 				log.Println("critical error: ", err)
-				errChan <- err
+				select {
+				case errChan <- err:
+				default:
+					log.Println("error channel blocked, dropping error")
+				}
+				cancel()
 				wg.Wait()
 				return
 			}
-		case read := <-readDataChan:
+		case read := <-readData:
 			go c.processPayload(ctx, read, errChan)
 		}
 	}

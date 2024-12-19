@@ -3,11 +3,9 @@ package client
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash/crc32"
-	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -196,7 +194,13 @@ func (c *client) startCleanup(ctx context.Context) {
 	}
 }
 
-func (c *client) handleSignals() {
+func (c *client) handleSignals(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
 	signals := []os.Signal{
 		syscall.SIGINT,
 		syscall.SIGTERM,
@@ -214,51 +218,3 @@ func (c *client) handleSignals() {
 		return
 	}
 }
-
-// writeToServer provides a way to synchronize writes across the entire backend
-func (c *client) writeToServer(ctx context.Context, data []byte) error {
-	c.tracker.IncrementWrite()
-	defer c.tracker.DecrementWrite()
-
-	payload := utils.PrependLength(data)
-	return utils.TryWriteCtx(ctx, c.serverConn, payload)
-}
-
-// make this a generic function
-func (c *client) readFromServer(ctx context.Context) ([]byte, error) {
-	c.tracker.IncrementRead()
-	defer c.tracker.DecrementRead()
-
-	// Read initial header
-	headerBuffer := make([]byte, 4)
-	n, err := io.ReadFull(c.serverConn, headerBuffer)
-	if err != nil {
-		log.Printf("Failed to read header: error=%v, bytes_read=%d", err, n)
-		return nil, fmt.Errorf("failed to read header: %w", err)
-	}
-
-	payloadLen := binary.BigEndian.Uint32(headerBuffer)
-
-	// Sanity check on payload length
-	if payloadLen > utils.MaxPayloadSize {
-		return nil, fmt.Errorf("payload length exceeds maximum allowed size: %d", payloadLen)
-	}
-
-	// Allocate space for the full payload
-	actualPayload := make([]byte, payloadLen)
-
-	// Use io.ReadFull to read the entire payload
-	if _, err := io.ReadFull(c.serverConn, actualPayload); err != nil {
-		return nil, fmt.Errorf("failed to read full payload: %w", err)
-	}
-
-	return actualPayload, nil
-}
-
-// // readFromServer provides a way to synchronize reads across the client
-// func (c *client) readFromServer(ctx context.Context) ([]byte, error) {
-// 	c.tracker.IncrementRead()
-// 	defer c.tracker.DecrementRead()
-
-// 	return utils.TryReadCtx(ctx, c.serverConn)
-// }

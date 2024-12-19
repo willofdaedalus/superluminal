@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -75,9 +76,7 @@ func (p *Pipeline) Start() {
 							continue
 						}
 
-						// prepend the length of the payload to the payload
-						send := utils.PrependLength(payload)
-						_, writeErr := conn.Write(send)
+						writeErr := utils.WriteFull(context.TODO(), conn, nil, payload)
 						if writeErr != nil {
 							fmt.Printf("Error writing to consumer: %v\n", writeErr)
 							// consider removing the failing consumer
@@ -94,7 +93,7 @@ func (p *Pipeline) Start() {
 }
 
 func writeDataToScreen(data []byte) {
-	fmt.Printf(string(data))
+	fmt.Printf("%s", string(data))
 }
 
 // Add a new client to the pipeline

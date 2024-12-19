@@ -203,8 +203,10 @@ func ReadFull(ctx context.Context, conn net.Conn, tracker *SyncTracker) ([]byte,
 }
 
 func WriteFull(ctx context.Context, conn net.Conn, tracker *SyncTracker, data []byte) error {
-	tracker.IncrementWrite()
-	defer tracker.DecrementWrite()
+	if tracker != nil {
+		tracker.IncrementWrite()
+		defer tracker.DecrementWrite()
+	}
 
 	payload := PrependLength(data)
 	return TryWriteCtx(ctx, conn, payload)

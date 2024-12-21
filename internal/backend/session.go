@@ -96,7 +96,7 @@ func (s *session) Start() error {
 	}()
 
 	go s.pipeline.ReadStdin()
-	go s.pipeline.Start()
+	go s.pipeline.Start(doneChan)
 	go s.regenPassLoop(ctx)
 	go s.listen(ctx, doneChan, errChan)
 
@@ -212,7 +212,11 @@ func (s *session) kickClient(
 // from each client before shutting down
 func (s *session) End() error {
 	ctx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
-	defer cancel()
+	defer func() {
+		cancel()
+		fmt.Println("server shutdown complete...")
+	}()
+
 	log.Println("server is shutting down...")
 
 	// prevent new connections
@@ -280,7 +284,7 @@ func (s *session) handleNewConn(ctx context.Context, conn net.Conn) string {
 	name, err := s.authenticateClient(ctx, conn)
 	if err != nil {
 		// if errors.Is(err, utils.ErrClientEarlyExit) {
-		// 	conn.Close()
+		// 	conn.Close(
 		// } else if errors.Is(err, utils.ErrFailedServerAuth) {
 		s.kickClient(ctx,
 			conn,

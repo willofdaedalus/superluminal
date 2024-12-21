@@ -39,7 +39,7 @@ func NewPipeline(maxConns uint8) (*Pipeline, error) {
 }
 
 // starts broadcasting pty output to all connected consumers
-func (p *Pipeline) Start() {
+func (p *Pipeline) Start(done chan<- struct{}) {
 	go func() {
 		p.WriteTo([]byte("\x0C"))
 		for {
@@ -48,10 +48,10 @@ func (p *Pipeline) Start() {
 				return
 			default:
 				// read from pty
-				buf, err := p.ReadFrom()
-				if err != nil || buf == nil {
-					// continue
-					log.Fatal(err)
+				buf := p.ReadFrom()
+				if buf == nil {
+					done <- struct{}{}
+					return
 				}
 
 				// this is for the client facing side so that they "see" what's happening
@@ -141,15 +141,14 @@ func (p *Pipeline) WriteTo(stuff []byte) {
 }
 
 // reads whatever is in the pty and returns it
-func (p *Pipeline) ReadFrom() ([]byte, error) {
+func (p *Pipeline) ReadFrom() []byte {
 	buf := make([]byte, 10240)
 	n, err := p.pty.Read(buf)
 	if err != nil {
-		fmt.Println("Couldn't read from the PTY:", err)
-		return nil, fmt.Errorf("server ended session")
+		return nil
 	}
 
-	return buf[:n], nil
+	return buf[:n]
 }
 
 func (p *Pipeline) ReadStdin() {

@@ -324,13 +324,14 @@ func (s *session) kickClientGracefully(clientID string) error {
 		return fmt.Errorf("failed to find client in kickClientGracefully")
 	}
 
-	infoPayload := base.GenerateInfo(info.Info_INFO_REQ_ACK, "goodbye...")
-	payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
-	if err == nil {
-		writeCtx, cancel := context.WithTimeout(context.Background(), clientKickTimeout)
-		utils.WriteFull(writeCtx, curClient.conn, s.tracker, payload)
-		cancel()
-	}
+	// DON'T SEND THE MESSAGE FOR NOW
+	// infoPayload := base.GenerateInfo(info.Info_INFO_REQ_ACK, utils.GoodbyeMsg)
+	// payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
+	// if err == nil {
+	// 	writeCtx, cancel := context.WithTimeout(context.Background(), clientKickTimeout)
+	// 	utils.WriteFull(writeCtx, curClient.conn, s.tracker, payload)
+	// 	cancel()
+	// }
 
 	s.pipeline.Unsubscribe(curClient.conn)
 	delete(s.clients, clientID)
@@ -338,6 +339,19 @@ func (s *session) kickClientGracefully(clientID string) error {
 }
 
 func (s *session) handleClientIO(ctx context.Context, clientID string) {
+	var wg sync.WaitGroup
+
+	readErr := make(chan error, 1)
+	readData := make(chan []byte, 1)
+	errChan := make(chan error, 1)
+	defer func() {
+		wg.Wait()      // wait for all goroutines to finish
+		close(errChan) // only close after all usage is done
+		close(readErr)
+		close(readData)
+	}()
+
+	log.Println("handling new client io")
 	client, ok := s.clients[clientID]
 	if !ok {
 		return
@@ -345,18 +359,6 @@ func (s *session) handleClientIO(ctx context.Context, clientID string) {
 
 	key := clientUniqID("client_id")
 	procCtx := context.WithValue(ctx, key, clientID)
-
-	readErrChan := make(chan error, 1)
-	readDataChan := make(chan []byte, 1)
-	errChan := make(chan error, 1)
-	var wg sync.WaitGroup
-
-	defer func() {
-		wg.Wait()      // wait for all goroutines to finish
-		close(errChan) // only close after all usage is done
-		close(readErrChan)
-		close(readDataChan)
-	}()
 
 	// reading goroutine
 	wg.Add(1)
@@ -369,10 +371,11 @@ func (s *session) handleClientIO(ctx context.Context, clientID string) {
 			default:
 				read, err := utils.ReadFull(ctx, client.conn, s.tracker)
 				if err != nil {
-					readErrChan <- err
+					log.Println("we got this error:", err.Error())
+					readErr <- err
 					return
 				}
-				readDataChan <- read
+				readData <- read
 			}
 		}
 	}()
@@ -382,14 +385,14 @@ func (s *session) handleClientIO(ctx context.Context, clientID string) {
 		select {
 		case <-ctx.Done():
 			return
-		case err := <-readErrChan:
+		case err := <-readErr:
 			if errors.Is(err, utils.ErrConnectionClosed) {
 				log.Println("client has already shut down")
 			} else if errors.Is(err, utils.ErrFailedAfterRetries) {
 				log.Println("failed to read from the server")
 			}
-			return // Stop processing for this client
-		case read := <-readDataChan:
+			return
+		case read := <-readData:
 			wg.Add(1)
 			go func(data []byte) {
 				defer wg.Done()
@@ -414,6 +417,7 @@ func (s *session) processPayload(ctx context.Context, data []byte, errChan chan<
 		if !ok {
 			errChan <- fmt.Errorf("couldn't assert info payload")
 		}
+		log.Println("got an info payload")
 		errChan <- s.handleClientInfoMsg(ctx, infoPayload)
 	}
 

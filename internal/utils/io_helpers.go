@@ -61,7 +61,7 @@ func TryWriteCtx(ctx context.Context, conn net.Conn, data []byte) error {
 
 		// handle write errors
 		if err != nil {
-			// non-retryable errors
+			// don't bother retrying for errors like these
 			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) {
 				return err
 			}
@@ -100,6 +100,7 @@ func TryWriteCtx(ctx context.Context, conn net.Conn, data []byte) error {
 	return ErrFailedAfterRetries
 }
 
+// NOTE; remember to retry the logic in the future for great UX
 func ReadFull(ctx context.Context, conn net.Conn, tracker *SyncTracker) ([]byte, error) {
 	tracker.IncrementRead()
 	defer tracker.DecrementRead()

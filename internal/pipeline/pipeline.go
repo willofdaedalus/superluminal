@@ -134,7 +134,7 @@ func (p *Pipeline) Close() {
 // Writes whatever is passed to the PTY
 // Used to pass commands to the PTY
 func (p *Pipeline) WriteTo(stuff []byte) {
-	if len(stuff) == 0 {
+	if len(stuff) == 0 || stuff == nil {
 		return
 	}
 	p.pty.Write(stuff)

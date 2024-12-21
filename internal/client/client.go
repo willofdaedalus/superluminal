@@ -80,8 +80,8 @@ func (c *client) ConnectToSession(ctx context.Context, host string) error {
 func (c *client) ListenForMessages(errChan chan<- error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {
-		c.startCleanup(ctx)
-		cancel()
+		// cleanup has its own context timeout
+		c.startCleanup()
 		close(errChan)
 	}()
 
@@ -98,7 +98,6 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 			close(readErr)
 			close(readData)
 			wg.Done()
-			fmt.Println("exiting from read goroutine")
 		}()
 
 		ticker := time.NewTicker(100 * time.Millisecond)
@@ -128,7 +127,7 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 					select {
 					case readData <- read:
 					default:
-						fmt.Println("dropped message: readDataChan is full")
+						fmt.Println("dropped message: readData is full")
 					}
 				}
 			default:
@@ -145,11 +144,8 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 			wg.Wait()
 			return
 		case <-c.exitChan:
-			log.Println("exiting from exitChan channel")
 			cancel()
-			fmt.Println("waiting for wg...")
 			wg.Wait()
-			fmt.Println("wg is done")
 			return
 		case err := <-readErr:
 			if err != nil {

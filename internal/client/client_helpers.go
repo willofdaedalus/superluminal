@@ -108,6 +108,11 @@ func (c *client) handleInfoPayload(ctx context.Context, payload base.Payload_Inf
 		log.Println(payload.Info.GetMessage())
 		os.Exit(0)
 		return nil
+
+		// case info.Info_INFO_REQ_ACK:
+		// 	if utils.GoodbyeMsg == payload.Info.GetMessage() {
+		// 		c.serverConn.Close()
+		// 	}
 	}
 
 	return utils.ErrUnspecifiedPayload
@@ -161,37 +166,44 @@ func (c *client) handleTermPayload(payload base.Payload_TermContent) error {
 	return nil
 }
 
-func (c *client) startCleanup(ctx context.Context) {
-	cleanCtx, cancel := context.WithTimeout(ctx, cleanupTime)
+func (c *client) startCleanup() {
+	ctx, cancel := context.WithTimeout(context.Background(), cleanupTime)
 
-	// safely close connections and channels
 	defer func() {
-		// close these only if they haven't been closed already
 		utils.SafeClose(c.sigChan)
 		utils.SafeClose(c.exitChan)
 		c.serverConn.Close()
 		cancel()
 	}()
 
-	// Only send shutdown message if approved
-	if c.isApproved {
-		infoPayload := base.GenerateInfo(info.Info_INFO_SHUTDOWN, "client_shutdown")
-		payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
-		if err != nil {
+	for {
+		select {
+		case <-ctx.Done():
 			return
+		default:
+			// only send shutdown message if approved
+			if c.isApproved {
+				infoPayload := base.GenerateInfo(info.Info_INFO_SHUTDOWN, "client_shutdown")
+				payload, err := base.EncodePayload(common.Header_HEADER_INFO, infoPayload)
+				if err != nil {
+					return
+				}
+
+				fmt.Println("beginning write")
+				// use the cleanup context for writing
+				err = utils.WriteFull(ctx, c.serverConn, c.tracker, payload)
+				if err != nil {
+					log.Println("Error during shutdown write:", err)
+				}
+
+				fmt.Println("wrote to server")
+				c.isApproved = false
+				cancel()
+
+			}
 		}
-
-		// Use the cleanup context for writing
-		err = utils.WriteFull(cleanCtx, c.serverConn, c.tracker, payload)
-		if err != nil {
-			// Log or handle write errors as needed
-			log.Println("Error during shutdown write:", err)
-		}
-
-		fmt.Println("wrote to server")
-
-		c.isApproved = false
 	}
+
 }
 
 func (c *client) handleSignals(ctx context.Context) {

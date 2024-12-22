@@ -8,7 +8,9 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
@@ -24,6 +26,7 @@ type client struct {
 	name        string
 	joined      time.Time
 	serverConn  net.Conn
+	signals     []os.Signal
 	exitChan    chan struct{}
 	sigChan     chan os.Signal
 	sentPass    bool
@@ -39,6 +42,7 @@ func New(name string) *client {
 		TermContent: make(chan string, 1),
 		exitChan:    make(chan struct{}, 1),
 		sigChan:     make(chan os.Signal, 1),
+		signals:     []os.Signal{syscall.SIGTERM, syscall.SIGINT},
 		sentPass:    false,
 		isApproved:  false,
 		serverConn:  nil,
@@ -78,14 +82,12 @@ func (c *client) ConnectToSession(ctx context.Context, host string) error {
 }
 
 func (c *client) ListenForMessages(errChan chan<- error) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), c.signals...)
 	defer func() {
 		// cleanup has its own context timeout
 		c.startCleanup()
 		close(errChan)
 	}()
-
-	go c.handleSignals(ctx)
 
 	readErr := make(chan error, 1)
 	readData := make(chan []byte, 1)

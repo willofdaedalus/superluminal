@@ -67,7 +67,6 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 			// }
 			return "", err
 		}
-		fmt.Println("received", len(clientResp))
 
 		authPayload, err := base.DecodePayload(clientResp)
 		if err != nil {
@@ -75,7 +74,6 @@ func (s *session) tryValidateClientPass(ctx context.Context, conn net.Conn, auth
 		}
 
 		if authPayload.GetHeader() != common.Header_HEADER_AUTH {
-			log.Printf("got %v", authPayload)
 			return "", utils.ErrInvalidHeader
 		}
 

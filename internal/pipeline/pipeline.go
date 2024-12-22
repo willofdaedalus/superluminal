@@ -59,6 +59,18 @@ func (p *Pipeline) Start(done chan<- struct{}) {
 
 				// broadcast to all consumers
 				p.mu.Lock()
+
+				bufCopy := make([]byte, len(buf))
+				copy(bufCopy, buf)
+				termPayload := base.GenerateTermContent(uuid.NewString(), uint32(len(buf)), buf)
+				payload, err := base.EncodePayload(common.Header_HEADER_TERMINAL_DATA, &termPayload)
+				if err != nil {
+					log.Println("failed to encode the terminal payload in pipeline.Start")
+					log.Println(err)
+					continue
+					// not quite sure what do with the error yet
+				}
+
 				for conn := range p.consumers {
 					// non-blocking write to prevent slow consumers from blocking
 					select {
@@ -66,24 +78,12 @@ func (p *Pipeline) Start(done chan<- struct{}) {
 						p.mu.Unlock()
 						return
 					default:
-						bufCopy := make([]byte, len(buf))
-						copy(bufCopy, buf)
-						termPayload := base.GenerateTermContent(uuid.NewString(), uint32(len(buf)), buf)
-						payload, err := base.EncodePayload(common.Header_HEADER_TERMINAL_DATA, &termPayload)
-						if err != nil {
-							log.Println("failed to encode the terminal payload in pipeline.Start")
-							log.Println(err)
-							continue
-						}
-
 						writeErr := utils.WriteFull(context.TODO(), conn, nil, payload)
 						if writeErr != nil {
 							fmt.Printf("Error writing to consumer: %v\n", writeErr)
 							// consider removing the failing consumer
 							delete(p.consumers, conn)
 						}
-						home, _ := os.UserHomeDir()
-						utils.LogBytes("wrote", home+"/superluminal.log", payload)
 					}
 				}
 				p.mu.Unlock()
@@ -116,10 +116,9 @@ func (p *Pipeline) Unsubscribe(conn net.Conn) {
 
 // Closes the pipeline and stops broadcasting
 func (p *Pipeline) Close() {
-	// Signal the broadcasting goroutine to stop
+	// signal the broadcasting goroutine to stop
 	close(p.stopChan)
 
-	// Clear out the consumers
 	p.mu.Lock()
 	for k := range p.consumers {
 		delete(p.consumers, k)
@@ -127,7 +126,6 @@ func (p *Pipeline) Close() {
 	}
 	p.mu.Unlock()
 
-	// Close the PTY
 	p.pty.Close()
 }
 

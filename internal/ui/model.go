@@ -5,8 +5,9 @@ import (
 )
 
 const (
-	stateSwitch = "ctrl+esc"
-	offset      = 2 // this offset is not fixed
+	tabSwitchForward  = "ctrl+esc"
+	tabSwitchBackward = "ctrl+shift+esc"
+	offset            = 2 // this offset is not fixed
 )
 
 func (m model) Init() tea.Cmd {

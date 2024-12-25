@@ -22,13 +22,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case tea.WindowSizeMsg:
-		m.width = msg.Width - offset
-		m.height = msg.Height - offset
+		m.scrWidth = msg.Width
+		m.scrHeight = msg.Height
 	}
 
 	return m, nil
 }
 
 func (m model) View() string {
-	return m.renderMainBorder()
+	return m.HeaderView()
 }

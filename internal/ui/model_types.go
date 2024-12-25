@@ -12,5 +12,7 @@ type clientEntry struct {
 type model struct {
 	msg           string
 	clientList    []clientEntry
-	width, height int
+	scrWidth int
+	scrHeight int
+	hostSide bool
 }

@@ -20,6 +20,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "ctrl+a":
+			if m.currentTab == 2 {
+				m.currentTab = 0
+			} else {
+				m.currentTab += 1
+			}
+		case "ctrl+shift+a":
+			if m.currentTab == 0 {
+				m.currentTab = 2
+			} else {
+				m.currentTab -= 1
+			}
 		}
 	case tea.WindowSizeMsg:
 		m.scrWidth = msg.Width
@@ -30,5 +42,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	return m.HeaderView()
+	return m.mainRender()
+	// return m.HeaderView()
 }

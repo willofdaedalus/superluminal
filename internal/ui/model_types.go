@@ -14,5 +14,6 @@ type model struct {
 	clientList    []clientEntry
 	scrWidth int
 	scrHeight int
+	currentTab int
 	hostSide bool
 }

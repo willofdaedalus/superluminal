@@ -5,34 +5,22 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const (
-	height = 1
-)
-
 func (m model) sessionHeaderLogic() string {
-	text := "session"
-	if m.currentTab == 1 {
-		text = "[session]"
+	text := normal("session")
+	if m.currentTab == 2 {
+		text = bold("[session]")
 	}
 
-	t := lipgloss.NewStyle().
-		Align(lipgloss.Center).
-		Render(text)
-
-	return t
+	return text
 }
 
 func (m model) chatHeaderLogic() string {
 	text := "chat"
-	if m.currentTab == 2 {
+	if m.currentTab == 1 {
 		text = "[chat]"
 	}
 
-	t := lipgloss.NewStyle().
-		Align(lipgloss.Center).
-		Render(text)
-
-	return t
+	return text
 }
 
 func (m model) terminalHeaderLogic() string {
@@ -41,18 +29,14 @@ func (m model) terminalHeaderLogic() string {
 		text = "[terminal]"
 	}
 
-	t := lipgloss.NewStyle().
-		Align(lipgloss.Center).
-		Render(text)
-
-	return t
+	return text
 }
 
 func (m model) HeaderView() string {
 	headers := []string{
 		m.terminalHeaderLogic(),
-		m.sessionHeaderLogic(),
 		m.chatHeaderLogic(),
+		m.sessionHeaderLogic(),
 	}
 
 	if !m.hostSide {
@@ -66,6 +50,7 @@ func (m model) HeaderView() string {
         Border(lipgloss.NormalBorder()).
         Width(m.scrWidth).
         StyleFunc(table.StyleFunc(func(row, col int) lipgloss.Style {
+			// align all the header text to the center of their respective boxes
             return lipgloss.NewStyle().AlignHorizontal(lipgloss.Center)
         })).
         Row(headers...).

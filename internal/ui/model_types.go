@@ -2,6 +2,7 @@ package ui
 
 import (
 	"time"
+	"github.com/charmbracelet/bubbles/viewport"
 )
 
 type clientEntry struct {
@@ -16,4 +17,5 @@ type model struct {
 	scrHeight int
 	currentTab int
 	hostSide bool
+	termView viewport.Model
 }

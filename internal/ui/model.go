@@ -5,9 +5,7 @@ import (
 )
 
 const (
-	tabSwitchForward  = "ctrl+esc"
-	tabSwitchBackward = "ctrl+shift+esc"
-	offset            = 2 // this offset is not fixed
+	tabSwitchForward  = "alt+esc"
 )
 
 func (m model) Init() tea.Cmd {
@@ -20,18 +18,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "ctrl+a":
-			if m.currentTab == 2 {
-				m.currentTab = 0
-			} else {
-				m.currentTab += 1
-			}
-		case "ctrl+shift+a":
-			if m.currentTab == 0 {
-				m.currentTab = 2
-			} else {
-				m.currentTab -= 1
-			}
+		case tabSwitchForward:
+			m.switchTab()
 		}
 	case tea.WindowSizeMsg:
 		m.scrWidth = msg.Width

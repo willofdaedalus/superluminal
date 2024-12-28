@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -36,8 +35,7 @@ const (
 	serverShutdownTimeout = time.Minute * 1
 )
 
-func NewSession(owner string, maxConns uint8) (*session, error) {
-	var reader bytes.Reader
+func NewSession(owner string, maxConns uint8) (*Session, error) {
 	clients := make(map[string]*sessionClient, maxConns)
 
 	listener, err := net.Listen("tcp", "0.0.0.0:42024")
@@ -65,7 +63,7 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 		syscall.SIGQUIT,
 	}
 
-	return &session{
+	return &Session{
 		Owner:         owner,
 		maxConns:      maxConns + 1,
 		clients:       clients,
@@ -73,7 +71,6 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 		pass:          pass,
 		hash:          hash,
 		pipeline:      p,
-		reader:        reader,
 		heartbeatTime: heartbeatTimeout,
 		passRegenTime: passRegenTimeout,
 		signals:       signals,
@@ -81,7 +78,7 @@ func NewSession(owner string, maxConns uint8) (*session, error) {
 	}, nil
 }
 
-func (s *session) Start() error {
+func (s *Session) Start() error {
 	// our shutdown can come from a signal for instance
 	ctx, cancel := signal.NotifyContext(context.Background(), s.signals...)
 	errChan := make(chan error, 1)
@@ -119,7 +116,7 @@ func (s *session) Start() error {
 	return nil
 }
 
-func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan chan error) {
+func (s *Session) listen(ctx context.Context, doneChan chan<- struct{}, errChan chan error) {
 	idChan := make(chan string, 1)
 
 	log.Println("server started...")
@@ -185,7 +182,7 @@ func (s *session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 	}
 }
 
-func (s *session) kickClient(
+func (s *Session) kickClient(
 	ctx context.Context, conn net.Conn, errType err1.ErrorMessage_ErrorCode, details []string) {
 	kickCtx, cancel := context.WithTimeout(ctx, clientKickTimeout)
 	defer cancel()
@@ -210,7 +207,7 @@ func (s *session) kickClient(
 // proceeds to shutdown.
 // with the current implementation, End doesn't wait for a departing message
 // from each client before shutting down
-func (s *session) End() error {
+func (s *Session) End() error {
 	ctx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 	defer func() {
 		cancel()
@@ -280,7 +277,7 @@ func (s *session) End() error {
 	return nil
 }
 
-func (s *session) handleNewConn(ctx context.Context, conn net.Conn) string {
+func (s *Session) handleNewConn(ctx context.Context, conn net.Conn) string {
 	name, err := s.authenticateClient(ctx, conn)
 	if err != nil {
 		// if errors.Is(err, utils.ErrClientEarlyExit) {
@@ -319,7 +316,7 @@ func (s *session) handleNewConn(ctx context.Context, conn net.Conn) string {
 	return newClient.uuid
 }
 
-func (s *session) kickClientGracefully(clientID string) error {
+func (s *Session) kickClientGracefully(clientID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -342,7 +339,7 @@ func (s *session) kickClientGracefully(clientID string) error {
 	return nil
 }
 
-func (s *session) handleClientIO(ctx context.Context, clientID string) {
+func (s *Session) handleClientIO(ctx context.Context, clientID string) {
 	var wg sync.WaitGroup
 
 	readErr := make(chan error, 1)
@@ -406,7 +403,7 @@ func (s *session) handleClientIO(ctx context.Context, clientID string) {
 	}
 }
 
-func (s *session) processPayload(ctx context.Context, data []byte, errChan chan<- error) {
+func (s *Session) processPayload(ctx context.Context, data []byte, errChan chan<- error) {
 	payload, err := base.DecodePayload(data)
 	if err != nil {
 		errChan <- err
@@ -415,6 +412,7 @@ func (s *session) processPayload(ctx context.Context, data []byte, errChan chan<
 
 	switch payload.GetHeader() {
 	case common.Header_HEADER_HEARTBEAT:
+		// TODO; this is incomplete FIXME!
 		errChan <- s.handleHeartbeatResp()
 	case common.Header_HEADER_INFO:
 		infoPayload, ok := payload.GetContent().(*base.Payload_Info)
@@ -427,7 +425,7 @@ func (s *session) processPayload(ctx context.Context, data []byte, errChan chan<
 
 }
 
-func (s *session) handleClientInfoMsg(ctx context.Context, infoPayload *base.Payload_Info) error {
+func (s *Session) handleClientInfoMsg(ctx context.Context, infoPayload *base.Payload_Info) error {
 	switch infoPayload.Info.InfoType {
 	case info.Info_INFO_SHUTDOWN:
 		id, ok := ctx.Value(clientUniqID("client_id")).(string)
@@ -441,7 +439,7 @@ func (s *session) handleClientInfoMsg(ctx context.Context, infoPayload *base.Pay
 	return nil
 }
 
-func (*session) handleHeartbeatResp() error {
+func (*Session) handleHeartbeatResp() error {
 
 	return nil
 }

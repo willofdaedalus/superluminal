@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"bytes"
 	"net"
 	"os"
 	"sync"
@@ -22,7 +21,7 @@ type sessionClient struct {
 	isOwner bool
 }
 
-type session struct {
+type Session struct {
 	Owner         string
 	maxConns      uint8
 	pass          string
@@ -31,7 +30,6 @@ type session struct {
 	pipeline      *pipeline.Pipeline
 	listener      net.Listener
 	signals       []os.Signal
-	reader        bytes.Reader
 	mu            sync.Mutex
 	tracker       *utils.SyncTracker
 	passRegenTime time.Duration

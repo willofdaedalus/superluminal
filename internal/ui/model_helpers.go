@@ -4,6 +4,7 @@ import (
 	"time"
 	"willofdaedalus/superluminal/internal/backend"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 )
 
@@ -15,13 +16,16 @@ type clientEntry struct {
 type model struct {
 	msg            string
 	clientList     []clientEntry
+	startInputs    []textinput.Model
 	scrWidth       int
 	scrHeight      int
 	currentTab     int
+	view           int
 	hostSide       bool
 	currentView    int
 	viewport       viewport.Model
 	currentSession *backend.Session
+	startCurField  int
 }
 
 const (
@@ -32,17 +36,6 @@ const (
 	hostMaxTabs   = 3
 	clientMaxTabs = 2
 )
-
-func NewModel(session *backend.Session) model {
-	clients := make([]clientEntry, 32)
-
-	return model{
-		clientList:     clients,
-		hostSide:       true,
-		currentView:    termView,
-		currentSession: session,
-	}
-}
 
 func (m *model) switchTab() {
 	tabCount := hostMaxTabs - 1

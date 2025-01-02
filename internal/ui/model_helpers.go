@@ -14,18 +14,19 @@ type clientEntry struct {
 }
 
 type model struct {
-	msg            string
-	clientList     []clientEntry
-	startInputs    []textinput.Model
-	scrWidth       int
-	scrHeight      int
-	currentTab     int
-	view           int
-	hostSide       bool
-	currentView    int
-	viewport       viewport.Model
-	currentSession *backend.Session
-	startCurField  int
+	clientList      []clientEntry
+	startInputs     []textinput.Model
+	scrWidth        int
+	scrHeight       int
+	currentTab      int
+	view            int
+	hostSide        bool
+	currentView     int
+	viewport        viewport.Model
+	currentSession  *backend.Session
+	startCurField   int
+	sessClientCount uint8
+	showErrMsg      bool
 }
 
 const (

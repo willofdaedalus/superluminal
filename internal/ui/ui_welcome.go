@@ -3,12 +3,24 @@ package ui
 import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
+	"strconv"
 )
 
 var (
 	hostname  string
 	clientNum string
 )
+
+func (m *model) validateStartInputs() error {
+	m.showErrMsg = false
+	num, err := strconv.Atoi(m.startInputs[1].Value())
+	if err != nil || (num < 1 || num > 32) {
+		return err
+	}
+
+	m.sessClientCount = uint8(num)
+	return nil
+}
 
 func (m *model) startInputsLogic() {
 	if m.startCurField == 2 {
@@ -75,6 +87,10 @@ func (m model) drawInputBox(label string, boxIdx, width int, selected bool) stri
 
 func (m model) StartScreenView() string {
 	scrWidth := m.scrWidth / 4
+	errText := ""
+	if m.showErrMsg {
+		errText = "invalid client number"
+	}
 
 	nameInput := m.drawInputBox(
 		"name of session (clients see this)",
@@ -86,11 +102,18 @@ func (m model) StartScreenView() string {
 		1, (scrWidth-5)+1, m.startCurField == 2,
 	)
 
+	errBox := lipgloss.NewStyle().
+		Border(lipgloss.HiddenBorder()).
+		Width(scrWidth - 5).
+		Foreground(lipgloss.Color("#ff0000")).
+		Render(errText)
+
 	terminalView := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
+		MarginTop(2).
 		Width(scrWidth).
 		Height(m.scrHeight/3).
-		Render(nameInput, countInput)
+		Render(nameInput, countInput, errBox)
 
 	scr := lipgloss.Place(
 		m.scrWidth, m.scrHeight,

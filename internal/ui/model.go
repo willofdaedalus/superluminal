@@ -44,6 +44,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 
+		case "enter":
+			if m.view == startView {
+				if err := m.validateStartInputs(); err != nil {
+					m.showErrMsg = true
+					return m, nil
+				}
+			}
+
 		case "tab":
 			if m.view == startView {
 				m.startInputsLogic()

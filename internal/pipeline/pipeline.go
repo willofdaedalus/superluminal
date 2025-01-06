@@ -55,7 +55,7 @@ func (p *Pipeline) Start(done chan<- struct{}) {
 				}
 
 				// this is for the client facing side so that they "see" what's happening
-				writeDataToScreen(buf)
+				// writeDataToScreen(buf)
 
 				// broadcast to all consumers
 				p.mu.Lock()

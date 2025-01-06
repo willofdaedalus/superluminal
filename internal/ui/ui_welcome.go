@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"fmt"
+	"strconv"
+
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
-	"strconv"
 )
 
 var (
@@ -20,17 +22,21 @@ func (m *model) validateStartInputs() error {
 	toValidate := m.startInputs[1].Value()
 	if m.hostSide {
 		num, err := strconv.Atoi(toValidate)
-		if err != nil || (num < 1 || num > 32) {
+		if num < 1 || num > 32 {
+			return fmt.Errorf("failed to get the right num")
+		}
+
+		if err != nil {
 			return err
 		}
 
 		m.sessClientCount = uint8(num)
-		m.currentSession.SetMaxConns(uint8(num))
+		m.appState.session.SetMaxConns(uint8(num))
 		// set the session name here based on the user's input
 		// we update this everytime in the event the user changes their mind
 		// about what to call the session; once we begin though it should be
 		// impossible to change the sesion name
-		m.currentSession.Owner = m.startInputs[0].Value()
+		m.appState.session.Owner = m.startInputs[0].Value()
 		return nil
 	}
 
@@ -39,10 +45,10 @@ func (m *model) validateStartInputs() error {
 	// we can print the error message to the user without explicitly
 	// checking whether the function that handles auth on the client returns
 	// good or bad
-	m.showErrMsg = m.client.SentPass
+	m.showErrMsg = m.appState.clientObj.SentPass
 	// pass the text field text to the client via a channel
-	m.client.SendPassphrase(toValidate)
-	m.client.SetName(m.startInputs[0].Value())
+	m.appState.clientObj.SendPassphrase(toValidate)
+	m.appState.clientObj.SetName(m.startInputs[0].Value())
 
 	return nil
 }
@@ -124,28 +130,19 @@ func (m model) drawInputBox(label string, boxIdx, width int, selected bool) stri
 func (m model) StartScreenView() string {
 	scrWidth := m.scrWidth / 4
 
-	firstLabel := "name of session (clients see this)"
-	secondLabel := "max number of clients (1 - 32)"
-	errText := "invalid client number"
-
-	if !m.hostSide {
-		firstLabel = "your name (will be visible to the host)"
-		secondLabel = "passphrase for access (consult the host)"
-		errText = "incorrect passphrase"
-	}
-
+	errText := ""
 	// show the errmsg on start
-	if !m.showErrMsg {
-		errText = ""
+	if m.showErrMsg {
+		errText = m.appState.initErrMessage
 	}
 
 	nameInput := m.drawInputBox(
-		firstLabel,
+		m.appState.firstInputLabel,
 		0, (scrWidth-5)+1, m.startCurField == 1,
 	)
 
 	countInput := m.drawInputBox(
-		secondLabel,
+		m.appState.secondInputLabel,
 		1, (scrWidth-5)+1, m.startCurField == 2,
 	)
 

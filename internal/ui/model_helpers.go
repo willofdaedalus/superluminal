@@ -2,8 +2,6 @@ package ui
 
 import (
 	"time"
-	"willofdaedalus/superluminal/internal/backend"
-	"willofdaedalus/superluminal/internal/client"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -24,10 +22,9 @@ type model struct {
 	hostSide        bool
 	currentView     int
 	viewport        viewport.Model
-	currentSession  *backend.Session
-	client          *client.Client
 	startCurField   int
 	sessClientCount uint8
+	appState        *state
 	showErrMsg      bool
 	clientErrChan   chan error
 }
@@ -42,15 +39,14 @@ const (
 )
 
 func (m *model) switchTab() {
-	tabCount := hostMaxTabs - 1
-
-	if !m.hostSide {
-		tabCount = clientMaxTabs - 1
-	}
-
+	tabCount := m.appState.tabCount - 1
 	if m.currentTab == tabCount {
 		m.currentTab = 0
 		return
 	}
 	m.currentTab += 1
+}
+
+func (m *model) transitionView(view int) {
+	m.view = view
 }

@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"fmt"
-	"log"
 	"os"
 	"willofdaedalus/superluminal/internal/backend"
 	"willofdaedalus/superluminal/internal/client"
@@ -12,6 +10,7 @@ import (
 
 const (
 	startView = iota + 1
+	mainView
 )
 
 const (
@@ -22,6 +21,7 @@ func NewModel(hostSide bool) (*model, error) {
 	var c *client.Client
 	var session *backend.Session
 	var err error
+	var appState *state
 
 	if hostSide {
 		// use a temporary name here which we'll later change when the user
@@ -31,6 +31,17 @@ func NewModel(hostSide bool) (*model, error) {
 		session, err = backend.NewSession("hello", 2)
 		if err != nil {
 			return nil, err
+		}
+
+		appState = &state{
+			charLimit:              2,
+			firstInputPlaceholder:  "session name",
+			secondInputPlaceholder: "number of clients",
+			firstInputLabel:        "name of your session (clients see this)",
+			secondInputLabel:       "number of clients (1-32)",
+			initErrMessage:         "please enter a valid number between 1 - 32",
+			session:                session,
+			tabCount:               hostMaxTabs,
 		}
 	} else {
 		// use a temporary name here which we'll later change when the user
@@ -46,17 +57,27 @@ func NewModel(hostSide bool) (*model, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		appState = &state{
+			charLimit:              65,
+			firstInputPlaceholder:  "your name",
+			secondInputPlaceholder: "passphrase",
+			firstInputLabel:        "your name (hosts see this)",
+			secondInputLabel:       "passphrase for session (ask the host)",
+			initErrMessage:         "wrong passphrase check again",
+			clientObj:              c,
+			tabCount:               clientMaxTabs,
+		}
 	}
 
 	return &model{
-		view:           startView,
-		startCurField:  1,
-		clientList:     make([]clientEntry, 32),
-		hostSide:       hostSide,
-		currentView:    termView,
-		currentSession: session,
-		startInputs:    readyStartInputs(hostSide),
-		client:         c,
+		view:          startView,
+		startCurField: 1,
+		clientList:    make([]clientEntry, 32),
+		hostSide:      hostSide,
+		currentView:   termView,
+		startInputs:   readyStartInputs(hostSide),
+		appState:      appState,
 	}, nil
 }
 
@@ -85,30 +106,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
-				if m.hostSide {
-					m.currentSession.Start()
-					return m, nil
-				} else {
-					m.clientErrChan = make(chan error, 1)
-					go func() {
-						m.client.ListenForMessages(m.clientErrChan)
-					}()
+				m.transitionView(mainView)
 
-					// Handle errors and shutdown
-					for {
-						select {
-						case err, ok := <-m.clientErrChan:
-							if !ok {
-								// this is actually an application exit
-								return m, nil
-							}
-							if err != nil {
-								fmt.Println("got something")
-								log.Println(err)
-							}
-						}
-					}
-				}
+				// if m.hostSide {
+				// 	m.appState.session.Start()
+				// 	return m, nil
+				// } else {
+				// 	m.clientErrChan = make(chan error, 1)
+				// 	go func() {
+				// 		m.appState.clientObj.ListenForMessages(m.clientErrChan)
+				// 	}()
+
+				// 	// Handle errors and shutdown
+				// 	for {
+				// 		select {
+				// 		case err, ok := <-m.clientErrChan:
+				// 			if !ok {
+				// 				// this is actually an application exit
+				// 				return m, nil
+				// 			}
+				// 			if err != nil {
+				// 				fmt.Println("got something")
+				// 				log.Println(err)
+				// 			}
+				// 		}
+				// 	}
+				// }
 			}
 
 		case "tab":
@@ -127,7 +150,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	return m.StartScreenView()
+	switch m.view {
+	case startView:
+		return m.StartScreenView()
+	case mainView:
+		return m.mainRender()
+	default:
+		return ""
+	}
 	// return m.startScreen()
 	// return m.mainRender()
 	// return m.HeaderView()

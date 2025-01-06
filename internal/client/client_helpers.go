@@ -1,7 +1,6 @@
 package client
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -25,7 +24,7 @@ const (
 	serverShutdownTime = time.Second * 20
 )
 
-func (c *client) handleErrPayload(payload base.Payload_Error) error {
+func (c *Client) handleErrPayload(payload base.Payload_Error) error {
 	switch payload.Error.GetCode() {
 	case err1.ErrorMessage_ERROR_SERVER_FULL:
 		// TODO => add a notification system to send messages like this to the
@@ -43,41 +42,47 @@ func (c *client) handleErrPayload(payload base.Payload_Error) error {
 	return utils.ErrUnspecifiedPayload
 }
 
-func (c *client) handleAuthPayload(ctx context.Context) error {
-	var pass string
+func (c *Client) SendPassphrase(pass string) {
+	c.bbltPass <- pass
+}
+
+func (c *Client) handleAuthPayload(ctx context.Context) error {
+	var passphrase string
 	authCtx, cancel := context.WithTimeout(ctx, passEntryTimeout)
 	defer cancel()
 
-	passChan := make(chan string, 1)
-	errChan := make(chan error, 1)
+	// passChan := make(chan string, 1)
+	// errChan := make(chan error, 1)
 
-	go func() {
-		prompt := "enter passphrase: "
-		if c.sentPass {
-			prompt = "re-enter the passphrase: "
-		}
-		fmt.Print(prompt)
+	// go func() {
+	// 	prompt := "enter passphrase: "
+	// 	if c.sentPass {
+	// 		prompt = "re-enter the passphrase: "
+	// 	}
+	// 	fmt.Print(prompt)
 
-		// use a scanner to handle potential input issues
-		scanner := bufio.NewScanner(os.Stdin)
-		if scanner.Scan() {
-			passChan <- scanner.Text()
-		} else {
-			errChan <- scanner.Err()
-		}
-	}()
+	// 	// use a scanner to handle potential input issues
+	// 	scanner := bufio.NewScanner(os.Stdin)
+	// 	if scanner.Scan() {
+	// 		passChan <- scanner.Text()
+	// 	} else {
+	// 		errChan <- scanner.Err()
+	// 	}
+	// }()
 
 	select {
+	// case pass := <-c.bbltPass:
+	// 	passphrase = pass
 	case <-ctx.Done():
-		log.Print("you waited too long")
 		return errors.New("passphrase entry timed out")
-	case inputErr := <-errChan:
-		return fmt.Errorf("input error: %w", inputErr)
-	case pass = <-passChan:
+	case passphrase = <-c.bbltPass:
+		// case inputErr := <-errChan:
+		// 	return fmt.Errorf("input error: %w", inputErr)
+		// case pass = <-passChan:
 		// Continue with authentication
 	}
 
-	authResp := base.GenerateAuthResp(c.name, pass)
+	authResp := base.GenerateAuthResp(c.name, passphrase)
 	payload, err := base.EncodePayload(common.Header_HEADER_AUTH, authResp)
 	if err != nil {
 		return err
@@ -87,15 +92,15 @@ func (c *client) handleAuthPayload(ctx context.Context) error {
 		return err
 	}
 
-	c.sentPass = true
+	c.SentPass = true
 	return nil
 }
 
-func (c *client) handleHeartbeatPayload() error {
+func (c *Client) handleHeartbeatPayload() error {
 	return nil
 }
 
-func (c *client) handleInfoPayload(ctx context.Context, payload base.Payload_Info) error {
+func (c *Client) handleInfoPayload(ctx context.Context, payload base.Payload_Info) error {
 	switch payload.Info.GetInfoType() {
 	case info.Info_INFO_AUTH_SUCCESS:
 		log.Println(payload.Info.GetMessage())
@@ -118,7 +123,7 @@ func (c *client) handleInfoPayload(ctx context.Context, payload base.Payload_Inf
 	return utils.ErrUnspecifiedPayload
 }
 
-func (c *client) handleServerShutdown(ctx context.Context) error {
+func (c *Client) handleServerShutdown(ctx context.Context) error {
 	shutCtx, cancel := context.WithTimeout(ctx, serverShutdownTime)
 	defer func() {
 		c.serverConn.Close()
@@ -148,7 +153,7 @@ func (c *client) handleServerShutdown(ctx context.Context) error {
 	return nil
 }
 
-func (c *client) handleTermPayload(payload base.Payload_TermContent) error {
+func (c *Client) handleTermPayload(payload base.Payload_TermContent) error {
 	termContent := payload.TermContent
 
 	sameLen := len(termContent.GetData()) == int(termContent.GetMessageLength())
@@ -166,7 +171,7 @@ func (c *client) handleTermPayload(payload base.Payload_TermContent) error {
 	return nil
 }
 
-func (c *client) startCleanup() {
+func (c *Client) startCleanup() {
 	ctx, cancel := context.WithTimeout(context.Background(), cleanupTime)
 
 	defer func() {
@@ -206,7 +211,7 @@ func (c *client) startCleanup() {
 
 }
 
-func (c *client) handleSignals(ctx context.Context) {
+func (c *Client) handleSignals(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 		return
@@ -229,4 +234,8 @@ func (c *client) handleSignals(ctx context.Context) {
 		fmt.Println("received signal:", sig)
 		return
 	}
+}
+
+func (c *Client) SetName(newName string) {
+	c.name = newName
 }

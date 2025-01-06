@@ -21,7 +21,7 @@ const (
 	maxConnTries = 3
 )
 
-type client struct {
+type Client struct {
 	TermContent chan string
 	name        string
 	joined      time.Time
@@ -29,40 +29,39 @@ type client struct {
 	signals     []os.Signal
 	exitChan    chan struct{}
 	sigChan     chan os.Signal
-	sentPass    bool
-	isApproved  bool
-	mu          sync.Mutex
-	tracker     *utils.SyncTracker
+	// channel for bubbletea ui to send the password to the backend
+	bbltPass   chan string
+	SentPass   bool
+	isApproved bool
+	mu         sync.Mutex
+	tracker    *utils.SyncTracker
 }
 
-func New(name string) *client {
-	return &client{
+func New(name string) *Client {
+	return &Client{
 		name:        name,
 		joined:      time.Now(),
 		TermContent: make(chan string, 1),
 		exitChan:    make(chan struct{}, 1),
 		sigChan:     make(chan os.Signal, 1),
 		signals:     []os.Signal{syscall.SIGTERM, syscall.SIGINT},
-		sentPass:    false,
+		SentPass:    false,
 		isApproved:  false,
+		bbltPass:    make(chan string, 1),
 		serverConn:  nil,
 		tracker:     utils.NewSyncTracker(),
 	}
 }
 
-func (c *client) ConnectToSession(ctx context.Context, host string) error {
+func (c *Client) ConnectToSession(host string) error {
 	var dialer net.Dialer
 	var err error
 
-	log.Printf("Attempting to connect to host: %s", host)
-
-	dialCtx, cancel := context.WithTimeout(ctx, time.Second*30)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
-	c.serverConn, err = dialer.DialContext(dialCtx, "tcp", host)
+	c.serverConn, err = dialer.DialContext(ctx, "tcp", host)
 	if err != nil {
-		log.Printf("Connection FAILED - detailed error: %+v", err)
-
 		switch {
 		case errors.Is(err, io.EOF):
 			log.Println("Server appears to have shutdown")
@@ -73,15 +72,15 @@ func (c *client) ConnectToSession(ctx context.Context, host string) error {
 		return err
 	}
 
-	// Add more connection verification
-	log.Printf("Connection SUCCESSFUL to %s\n", host)
-	log.Printf("Local Address: %v\n", c.serverConn.LocalAddr())
-	log.Printf("Remote Address: %v\n", c.serverConn.RemoteAddr())
+	// // Add more connection verification
+	// log.Printf("Connection SUCCESSFUL to %s\n", host)
+	// log.Printf("Local Address: %v\n", c.serverConn.LocalAddr())
+	// log.Printf("Remote Address: %v\n", c.serverConn.RemoteAddr())
 
 	return nil
 }
 
-func (c *client) ListenForMessages(errChan chan<- error) {
+func (c *Client) ListenForMessages(errChan chan<- error) {
 	ctx, cancel := signal.NotifyContext(context.Background(), c.signals...)
 	defer func() {
 		// cleanup has its own context timeout
@@ -167,14 +166,13 @@ func (c *client) ListenForMessages(errChan chan<- error) {
 	}
 }
 
-func (c *client) processPayload(ctx context.Context, data []byte, errChan chan<- error) {
+func (c *Client) processPayload(ctx context.Context, data []byte, errChan chan<- error) {
 	procCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	payload, err := base.DecodePayload(data)
 	if err != nil {
 		fmt.Println(len(data))
-		fmt.Printf("what the fuck %v", err)
 		errChan <- err
 		return
 	}
@@ -183,7 +181,6 @@ func (c *client) processPayload(ctx context.Context, data []byte, errChan chan<-
 	case common.Header_HEADER_ERROR:
 		errPayload, ok := payload.GetContent().(*base.Payload_Error)
 		if ok {
-			log.Println("got a header error")
 			errChan <- c.handleErrPayload(*errPayload)
 			return
 		}

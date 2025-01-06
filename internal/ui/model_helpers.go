@@ -3,6 +3,7 @@ package ui
 import (
 	"time"
 	"willofdaedalus/superluminal/internal/backend"
+	"willofdaedalus/superluminal/internal/client"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -24,9 +25,11 @@ type model struct {
 	currentView     int
 	viewport        viewport.Model
 	currentSession  *backend.Session
+	client          *client.Client
 	startCurField   int
 	sessClientCount uint8
 	showErrMsg      bool
+	clientErrChan   chan error
 }
 
 const (

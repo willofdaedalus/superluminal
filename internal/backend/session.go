@@ -25,6 +25,7 @@ import (
 
 const (
 	debugPassCount = 1
+	prodPassCount  = 5
 	maxAuthChances = 3
 	maxTries       = 3
 
@@ -52,7 +53,6 @@ func NewSession(owner string, maxConns uint8) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Println("your pass is", pass)
 
 	master := createClient(owner, nil, true)
 	clients[master.uuid] = master

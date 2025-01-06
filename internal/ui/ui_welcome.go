@@ -11,18 +11,43 @@ var (
 	clientNum string
 )
 
+// validates the user input by checking for the expected values and such
+// while also filling the right fields in the model with the user submitted
+// information for a seamless and smooth transition
 func (m *model) validateStartInputs() error {
 	m.showErrMsg = false
-	num, err := strconv.Atoi(m.startInputs[1].Value())
-	if err != nil || (num < 1 || num > 32) {
-		return err
+
+	toValidate := m.startInputs[1].Value()
+	if m.hostSide {
+		num, err := strconv.Atoi(toValidate)
+		if err != nil || (num < 1 || num > 32) {
+			return err
+		}
+
+		m.sessClientCount = uint8(num)
+		m.currentSession.SetMaxConns(uint8(num))
+		// set the session name here based on the user's input
+		// we update this everytime in the event the user changes their mind
+		// about what to call the session; once we begin though it should be
+		// impossible to change the sesion name
+		m.currentSession.Owner = m.startInputs[0].Value()
+		return nil
 	}
 
-	m.sessClientCount = uint8(num)
+	// if the user sends the wrong pass, the server reacts by resending
+	// the auth prompt which sets the client's sentpass value; using that
+	// we can print the error message to the user without explicitly
+	// checking whether the function that handles auth on the client returns
+	// good or bad
+	m.showErrMsg = m.client.SentPass
+	// pass the text field text to the client via a channel
+	m.client.SendPassphrase(toValidate)
+	m.client.SetName(m.startInputs[0].Value())
+
 	return nil
 }
 
-func (m *model) startInputsLogic() {
+func (m *model) switchStartInput() {
 	if m.startCurField == 2 {
 		m.startCurField = 1
 		m.startInputs[1].Blur()
@@ -34,19 +59,30 @@ func (m *model) startInputsLogic() {
 	}
 }
 
-func readyStartInputs() []textinput.Model {
+func readyStartInputs(hostSide bool) []textinput.Model {
 	inputs := make([]textinput.Model, 0, 2)
+	limit := 2
+	namePlaceholder := "name of session"
+	numberPlaceholder := "number of clients"
+
+	if !hostSide {
+		namePlaceholder = "your name"
+		numberPlaceholder = "passphrase"
+		// this is assuming diceware chooses to use 5 * 12 char words
+		// +1 for sane divisions
+		limit = 65
+	}
 
 	// name input box
 	nameInput := textinput.New()
 	nameInput.Focus()
 	nameInput.CharLimit = 15
-	nameInput.Placeholder = "name of session"
+	nameInput.Placeholder = namePlaceholder
 
 	// client number input box
 	numInput := textinput.New()
-	numInput.Placeholder = "number of clients"
-	numInput.CharLimit = 2
+	numInput.Placeholder = numberPlaceholder
+	numInput.CharLimit = limit
 
 	inputs = append(inputs, nameInput, numInput)
 	return inputs
@@ -65,7 +101,7 @@ func (m model) drawInputBox(label string, boxIdx, width int, selected bool) stri
 
 	textBox := m.startInputs[boxIdx]
 	if selected {
-		textBox.Focus() // panic happens here
+		textBox.Focus()
 	} else {
 		textBox.Blur()
 	}
@@ -87,18 +123,29 @@ func (m model) drawInputBox(label string, boxIdx, width int, selected bool) stri
 
 func (m model) StartScreenView() string {
 	scrWidth := m.scrWidth / 4
-	errText := ""
-	if m.showErrMsg {
-		errText = "invalid client number"
+
+	firstLabel := "name of session (clients see this)"
+	secondLabel := "max number of clients (1 - 32)"
+	errText := "invalid client number"
+
+	if !m.hostSide {
+		firstLabel = "your name (will be visible to the host)"
+		secondLabel = "passphrase for access (consult the host)"
+		errText = "incorrect passphrase"
+	}
+
+	// show the errmsg on start
+	if !m.showErrMsg {
+		errText = ""
 	}
 
 	nameInput := m.drawInputBox(
-		"name of session (clients see this)",
+		firstLabel,
 		0, (scrWidth-5)+1, m.startCurField == 1,
 	)
 
 	countInput := m.drawInputBox(
-		"max number of clients (1 - 32)",
+		secondLabel,
 		1, (scrWidth-5)+1, m.startCurField == 2,
 	)
 

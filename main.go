@@ -3,10 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
 	"log"
 	"strconv"
 	"willofdaedalus/superluminal/internal/ui"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 var (
@@ -34,7 +35,12 @@ func validateClientNum(in string) error {
 
 // TODO; remember to disable signal processing for bubbletea
 func main() {
-	p := tea.NewProgram(ui.NewModel(nil), tea.WithAltScreen())
+	model, err := ui.NewModel(startServer)
+	if err != nil {
+		log.Fatalf("couldn't connect to server because of new client")
+	}
+
+	p := tea.NewProgram(*model, tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {
 		log.Fatal(err)
@@ -62,8 +68,8 @@ func main() {
 	// 		addr = os.Args[1]
 	// 	}
 
-	// 	// err := client.ConnectToSession(ctx, "localhost", "42024")
-	// 	err := client.ConnectToSession(ctx, addr)
+	// 	// err := client.ConnectToSession("localhost", "42024")
+	// 	err := client.ConnectToSession(addr)
 	// 	if err != nil {
 	// 		log.Fatal(err.Error())
 	// 	}

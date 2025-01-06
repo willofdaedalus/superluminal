@@ -1,7 +1,11 @@
 package ui
 
 import (
+	"fmt"
+	"log"
+	"os"
 	"willofdaedalus/superluminal/internal/backend"
+	"willofdaedalus/superluminal/internal/client"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -14,16 +18,46 @@ const (
 	headerSwitch = "alt+esc"
 )
 
-func NewModel(session *backend.Session) model {
-	return model{
+func NewModel(hostSide bool) (*model, error) {
+	var c *client.Client
+	var session *backend.Session
+	var err error
+
+	if hostSide {
+		// use a temporary name here which we'll later change when the user
+		// submits their own name with the passphrase to connect to the server
+		// we're using a maxconns of 2 which we'll change later by resizing based
+		// on user input in the form fields
+		session, err = backend.NewSession("hello", 2)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// use a temporary name here which we'll later change when the user
+		// submits their own name with the passphrase to connect to the server
+		c = client.New("temp-name")
+
+		addr := "localhost:42024"
+		if len(os.Args) > 1 {
+			addr = os.Args[1]
+		}
+
+		err = c.ConnectToSession(addr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &model{
 		view:           startView,
 		startCurField:  1,
 		clientList:     make([]clientEntry, 32),
-		hostSide:       true,
+		hostSide:       hostSide,
 		currentView:    termView,
 		currentSession: session,
-		startInputs:    readyStartInputs(),
-	}
+		startInputs:    readyStartInputs(hostSide),
+		client:         c,
+	}, nil
 }
 
 func (m model) Init() tea.Cmd {
@@ -50,11 +84,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.showErrMsg = true
 					return m, nil
 				}
+
+				if m.hostSide {
+					m.currentSession.Start()
+					return m, nil
+				} else {
+					m.clientErrChan = make(chan error, 1)
+					go func() {
+						m.client.ListenForMessages(m.clientErrChan)
+					}()
+
+					// Handle errors and shutdown
+					for {
+						select {
+						case err, ok := <-m.clientErrChan:
+							if !ok {
+								// this is actually an application exit
+								return m, nil
+							}
+							if err != nil {
+								fmt.Println("got something")
+								log.Println(err)
+							}
+						}
+					}
+				}
 			}
 
 		case "tab":
 			if m.view == startView {
-				m.startInputsLogic()
+				m.switchStartInput()
 			}
 
 		case headerSwitch:

@@ -29,3 +29,7 @@ func (s *Session) GetClientCount() string {
 func (s *Session) GetCurrentPass() string {
 	return s.pass
 }
+
+func (s *Session) SetMaxConns(max uint8) {
+	s.maxConns = max
+}

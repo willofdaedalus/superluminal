@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"os"
 	"willofdaedalus/superluminal/internal/backend"
 	"willofdaedalus/superluminal/internal/client"
 
@@ -39,7 +38,8 @@ func NewModel(hostSide bool) (*model, error) {
 			secondInputPlaceholder: "number of clients",
 			firstInputLabel:        "name of your session (clients see this)",
 			secondInputLabel:       "number of clients (1-32)",
-			initErrMessage:         "please enter a valid number between 1 - 32",
+			firstInputErrMsg:       "name cannot be blank",
+			secondInputErrMsg:      "enter a valid number between 1 and 32",
 			session:                session,
 			tabCount:               hostMaxTabs,
 		}
@@ -48,15 +48,15 @@ func NewModel(hostSide bool) (*model, error) {
 		// submits their own name with the passphrase to connect to the server
 		c = client.New("temp-name")
 
-		addr := "localhost:42024"
-		if len(os.Args) > 1 {
-			addr = os.Args[1]
-		}
+		// addr := "localhost:42024"
+		// if len(os.Args) > 1 {
+		// 	addr = os.Args[1]
+		// }
 
-		err = c.ConnectToSession(addr)
-		if err != nil {
-			return nil, err
-		}
+		// err = c.ConnectToSession(addr)
+		// if err != nil {
+		// 	return nil, err
+		// }
 
 		appState = &state{
 			charLimit:              65,
@@ -64,7 +64,8 @@ func NewModel(hostSide bool) (*model, error) {
 			secondInputPlaceholder: "passphrase",
 			firstInputLabel:        "your name (hosts see this)",
 			secondInputLabel:       "passphrase for session (ask the host)",
-			initErrMessage:         "wrong passphrase check again",
+			firstInputErrMsg:       "name cannot be blank",
+			secondInputErrMsg:      "password cannot be blank",
 			clientObj:              c,
 			tabCount:               clientMaxTabs,
 		}

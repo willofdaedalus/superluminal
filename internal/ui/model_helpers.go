@@ -19,13 +19,14 @@ type model struct {
 	scrHeight       int
 	currentTab      int
 	view            int
-	hostSide        bool
 	currentView     int
-	viewport        viewport.Model
 	startCurField   int
+	hostSide        bool
+	showErrMsg      bool
+	viewport        viewport.Model
 	sessClientCount uint8
 	appState        *state
-	showErrMsg      bool
+	errMsg          string
 	clientErrChan   chan error
 }
 
@@ -45,6 +46,10 @@ func (m *model) switchTab() {
 		return
 	}
 	m.currentTab += 1
+}
+
+func (m *model) setErrorMessage(msg string) {
+	m.errMsg = msg
 }
 
 func (m *model) transitionView(view int) {

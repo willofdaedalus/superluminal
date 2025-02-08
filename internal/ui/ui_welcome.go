@@ -13,33 +13,17 @@ var (
 	clientNum string
 )
 
-// validates the user input by checking for the expected values and such
-// while also filling the right fields in the model with the user submitted
-// information for a seamless and smooth transition
-func (m *model) validateStartInputs() error {
-	m.showErrMsg = false
+func setupHostSide(m *model, num int) {
+	m.sessClientCount = uint8(num)
+	m.appState.session.SetMaxConns(uint8(num))
+	// set the session name here based on the user's input
+	// we update this everytime in the event the user changes their mind
+	// about what to call the session; once we begin though it should be
+	// impossible to change the sesion name
+	m.appState.session.Owner = m.startInputs[0].Value()
+}
 
-	toValidate := m.startInputs[1].Value()
-	if m.hostSide {
-		num, err := strconv.Atoi(toValidate)
-		if num < 1 || num > 32 {
-			return fmt.Errorf("failed to get the right num")
-		}
-
-		if err != nil {
-			return err
-		}
-
-		m.sessClientCount = uint8(num)
-		m.appState.session.SetMaxConns(uint8(num))
-		// set the session name here based on the user's input
-		// we update this everytime in the event the user changes their mind
-		// about what to call the session; once we begin though it should be
-		// impossible to change the sesion name
-		m.appState.session.Owner = m.startInputs[0].Value()
-		return nil
-	}
-
+func setupClientSide(m *model, toValidate string) {
 	// if the user sends the wrong pass, the server reacts by resending
 	// the auth prompt which sets the client's sentpass value; using that
 	// we can print the error message to the user without explicitly
@@ -49,7 +33,41 @@ func (m *model) validateStartInputs() error {
 	// pass the text field text to the client via a channel
 	m.appState.clientObj.SendPassphrase(toValidate)
 	m.appState.clientObj.SetName(m.startInputs[0].Value())
+}
 
+// validates the user input by checking for the expected values and such
+// while also filling the right fields in the model with the user submitted
+// information for a seamless and smooth transition
+func (m *model) validateStartInputs() error {
+	m.showErrMsg = false
+	firstInput := m.startInputs[0].Value()
+	if len(firstInput) == 0 {
+		m.setErrorMessage(m.appState.firstInputErrMsg)
+		return fmt.Errorf("wrong input")
+	}
+
+	toValidate := m.startInputs[1].Value()
+	if len(toValidate) == 0 {
+		m.setErrorMessage(m.appState.secondInputErrMsg)
+		return fmt.Errorf("wrong input")
+	}
+
+	if m.hostSide {
+		num, err := strconv.Atoi(toValidate)
+		if num < 1 || num > 32 {
+			m.setErrorMessage(m.appState.secondInputErrMsg)
+			return fmt.Errorf("wrong input")
+		}
+
+		if err != nil {
+			return err
+		}
+
+		setupHostSide(m, num)
+		return nil
+	}
+
+	setupClientSide(m, toValidate)
 	return nil
 }
 
@@ -133,7 +151,7 @@ func (m model) StartScreenView() string {
 	errText := ""
 	// show the errmsg on start
 	if m.showErrMsg {
-		errText = m.appState.initErrMessage
+		errText = m.errMsg
 	}
 
 	nameInput := m.drawInputBox(
@@ -157,7 +175,7 @@ func (m model) StartScreenView() string {
 		MarginTop(2).
 		Width(scrWidth).
 		Height(m.scrHeight/3).
-		Render(nameInput, countInput, errBox)
+		Render(fmt.Sprintf("\033[31m%s\033[0m", nameInput), countInput, errBox)
 
 	scr := lipgloss.Place(
 		m.scrWidth, m.scrHeight,

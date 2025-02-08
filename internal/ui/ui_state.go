@@ -20,7 +20,10 @@ type state struct {
 	secondInputPlaceholder string
 	firstInputLabel        string
 	secondInputLabel       string
+	firstInputErrMsg       string
+	secondInputErrMsg      string
 	initErrMessage         string
+	nameBlankErrMsg        string
 	clientObj              *client.Client
 	session                *backend.Session
 }

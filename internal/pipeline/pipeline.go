@@ -16,6 +16,7 @@ import (
 
 type Pipeline struct {
 	pty           *os.File
+	logFile       *os.File
 	mainClient    *os.File
 	consumers     map[net.Conn]struct{}
 	consumerCount uint8
@@ -30,18 +31,20 @@ func NewPipeline(maxConns uint8) (*Pipeline, error) {
 	if err != nil {
 		return nil, err
 	}
-	cs := make(map[net.Conn]struct{}, maxConns)
+	file, _ := os.OpenFile("./log.output", os.O_CREATE|os.O_WRONLY, 0644)
 	return &Pipeline{
 		pty:       pty,
-		consumers: cs,
+		consumers: make(map[net.Conn]struct{}, maxConns),
 		stopChan:  make(chan struct{}),
+		logFile:   file,
 	}, nil
 }
 
 // starts broadcasting pty output to all connected consumers
 func (p *Pipeline) Start(done chan<- struct{}) {
 	go func() {
-		p.WriteTo([]byte("\x0C"))
+		// clear the screen
+		// p.WriteTo([]byte("\x0C"))
 		for {
 			select {
 			case <-p.stopChan:
@@ -55,7 +58,7 @@ func (p *Pipeline) Start(done chan<- struct{}) {
 				}
 
 				// this is for the client facing side so that they "see" what's happening
-				// writeDataToScreen(buf)
+				p.writeDataToScreen(buf)
 
 				// broadcast to all consumers
 				p.mu.Lock()
@@ -92,8 +95,9 @@ func (p *Pipeline) Start(done chan<- struct{}) {
 	}()
 }
 
-func writeDataToScreen(data []byte) {
+func (p *Pipeline) writeDataToScreen(data []byte) {
 	fmt.Printf("%s", string(data))
+	p.logFile.Write(data)
 }
 
 // Add a new client to the pipeline
@@ -116,10 +120,11 @@ func (p *Pipeline) Unsubscribe(conn net.Conn) {
 
 // Closes the pipeline and stops broadcasting
 func (p *Pipeline) Close() {
+	p.mu.Lock()
 	// signal the broadcasting goroutine to stop
 	close(p.stopChan)
+	p.logFile.Close()
 
-	p.mu.Lock()
 	for k := range p.consumers {
 		delete(p.consumers, k)
 		k.Close()

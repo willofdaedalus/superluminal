@@ -54,6 +54,8 @@ func NewSession(owner string, maxConns uint8) (*Session, error) {
 		return nil, err
 	}
 
+	fmt.Println("your pass is ", pass)
+
 	master := createClient(owner, nil, true)
 	clients[master.uuid] = master
 

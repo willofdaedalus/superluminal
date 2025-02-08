@@ -3,9 +3,14 @@ package backend
 import (
 	"bytes"
 	"net"
+	"os"
+	"sync"
 	"testing"
+	"time"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
+	"willofdaedalus/superluminal/internal/pipeline"
+	"willofdaedalus/superluminal/internal/utils"
 )
 
 const (
@@ -71,4 +76,94 @@ func TestSessionFullMessage(t *testing.T) {
 	}
 
 	conn.Close()
+}
+
+func TestSession_Start(t *testing.T) {
+	type fields struct {
+		Owner         string
+		maxConns      uint8
+		pass          string
+		hash          string
+		clients       map[string]*sessionClient
+		pipeline      *pipeline.Pipeline
+		listener      net.Listener
+		signals       []os.Signal
+		mu            sync.Mutex
+		tracker       *utils.SyncTracker
+		passRegenTime time.Duration
+		heartbeatTime time.Duration
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Session{
+				Owner:         tt.fields.Owner,
+				maxConns:      tt.fields.maxConns,
+				pass:          tt.fields.pass,
+				hash:          tt.fields.hash,
+				clients:       tt.fields.clients,
+				pipeline:      tt.fields.pipeline,
+				listener:      tt.fields.listener,
+				signals:       tt.fields.signals,
+				mu:            tt.fields.mu,
+				tracker:       tt.fields.tracker,
+				passRegenTime: tt.fields.passRegenTime,
+				heartbeatTime: tt.fields.heartbeatTime,
+			}
+			if err := s.Start(); (err != nil) != tt.wantErr {
+				t.Errorf("Session.Start() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSession_End(t *testing.T) {
+	type fields struct {
+		Owner         string
+		maxConns      uint8
+		pass          string
+		hash          string
+		clients       map[string]*sessionClient
+		pipeline      *pipeline.Pipeline
+		listener      net.Listener
+		signals       []os.Signal
+		mu            sync.Mutex
+		tracker       *utils.SyncTracker
+		passRegenTime time.Duration
+		heartbeatTime time.Duration
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Session{
+				Owner:         tt.fields.Owner,
+				maxConns:      tt.fields.maxConns,
+				pass:          tt.fields.pass,
+				hash:          tt.fields.hash,
+				clients:       tt.fields.clients,
+				pipeline:      tt.fields.pipeline,
+				listener:      tt.fields.listener,
+				signals:       tt.fields.signals,
+				mu:            tt.fields.mu,
+				tracker:       tt.fields.tracker,
+				passRegenTime: tt.fields.passRegenTime,
+				heartbeatTime: tt.fields.heartbeatTime,
+			}
+			if err := s.End(); (err != nil) != tt.wantErr {
+				t.Errorf("Session.End() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
 }

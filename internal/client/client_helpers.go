@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -51,34 +52,34 @@ func (c *Client) handleAuthPayload(ctx context.Context) error {
 	authCtx, cancel := context.WithTimeout(ctx, passEntryTimeout)
 	defer cancel()
 
-	// passChan := make(chan string, 1)
-	// errChan := make(chan error, 1)
+	passChan := make(chan string, 1)
+	errChan := make(chan error, 1)
 
-	// go func() {
-	// 	prompt := "enter passphrase: "
-	// 	if c.sentPass {
-	// 		prompt = "re-enter the passphrase: "
-	// 	}
-	// 	fmt.Print(prompt)
+	go func() {
+		prompt := "enter passphrase: "
+		if c.SentPass {
+			prompt = "re-enter the passphrase: "
+		}
+		fmt.Print(prompt)
 
-	// 	// use a scanner to handle potential input issues
-	// 	scanner := bufio.NewScanner(os.Stdin)
-	// 	if scanner.Scan() {
-	// 		passChan <- scanner.Text()
-	// 	} else {
-	// 		errChan <- scanner.Err()
-	// 	}
-	// }()
+		// use a scanner to handle potential input issues
+		scanner := bufio.NewScanner(os.Stdin)
+		if scanner.Scan() {
+			passChan <- scanner.Text()
+		} else {
+			errChan <- scanner.Err()
+		}
+	}()
 
 	select {
 	// case pass := <-c.bbltPass:
 	// 	passphrase = pass
 	case <-ctx.Done():
 		return errors.New("passphrase entry timed out")
-	case passphrase = <-c.bbltPass:
-		// case inputErr := <-errChan:
-		// 	return fmt.Errorf("input error: %w", inputErr)
-		// case pass = <-passChan:
+		// case passphrase = <-c.bbltPass:
+	case inputErr := <-errChan:
+		return fmt.Errorf("input error: %w", inputErr)
+	case passphrase = <-passChan:
 		// Continue with authentication
 	}
 

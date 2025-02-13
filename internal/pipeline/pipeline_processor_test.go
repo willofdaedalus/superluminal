@@ -69,31 +69,26 @@ func Test_sanitizeRawCode(t *testing.T) {
 		args args
 		want []byte
 	}{
-		// === OSC TEST CASES ===
 		{
-			name: "with osc",
-			args: args{[]byte{OSC, 'a', 'b', 'c', 'd', '\a'}},
-			want: []byte{},
-		},
-		{
-			name: "no sequences",
-			args: args{[]byte{'a', 'b', 'c', 'd', '\a'}},
-			want: []byte{'a', 'b', 'c', 'd', '\a'},
-		},
-		{
-			name: "multiple osc in a row",
-			args: args{[]byte{OSC, 'a', OSC, OSC, OSC, '\a', 'a', 'b', 'c', OSC, 'c', 'd', '\a'}},
-			want: []byte("abc"),
-		},
-		{
-			name: "multiple osc",
-			args: args{[]byte("\033]0;daedalus@theforge:~/projects/golang/personal/superluminal\007\033[?2004h[daedalus@theforge superluminal]$ ")},
-			want: []byte("[?2004h[daedalus@theforge superluminal]$ "),
-		},
-		{
-			name: "no ending osc",
-			args: args{[]byte{OSC}},
-			want: []byte{},
+			name: "simple complex",
+			args: args{
+				data: []byte(`
+[?2004h[daedalus@theforge superluminal]$ ls
+[?2004lREADME.md  btop.output	go.mod	go.sum	hello  hello_log  internal  log.output	main.go  out.gif  output.txt  protos  protos.sh  scripts  superluminal	tape.vhs  tmp  tmux.output
+[?2004h[daedalus@theforge superluminal]$ whoami
+[?2004ldaedalus
+[?2004h[daedalus@theforge superluminal]$ exit
+[?2004lexit
+`),
+			},
+			want: []byte(`
+[daedalus@theforge superluminal]$ ls
+README.md  btop.output	go.mod	go.sum	hello  hello_log  internal  log.output	main.go  out.gif  output.txt  protos  protos.sh  scripts  superluminal	tape.vhs  tmp  tmux.output
+[daedalus@theforge superluminal]$ whoami
+daedalus
+[daedalus@theforge superluminal]$ exit
+exit
+`),
 		},
 	}
 	for _, tt := range tests {

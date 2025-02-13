@@ -1,0 +1,13 @@
+[?2004h[daedalus@theforge superluminal]$ ls
+[?2004lREADME.md  btop.output	go.mod	go.sum	hello  hello_log  internal  log.output	main.go  out.gif  output.txt  protos  protos.sh  scripts  superluminal	tape.vhs  tmp  tmux.output
+[?2004h[daedalus@theforge superluminal]$ whoami
+[?2004ldaedalus
+[?2004h[daedalus@theforge superluminal]$ exit
+[?2004lexit
+
+[daedalus@theforge superluminal]$ ls
+README.md  btop.output	go.mod	go.sum	hello  hello_log  internal  log.output	main.go  out.gif  output.txt  protos  protos.sh  scripts  superluminal	tape.vhs  tmp  tmux.output
+[daedalus@theforge superluminal]$ whoami
+daedalus
+[daedalus@theforge superluminal]$ exit
+exit

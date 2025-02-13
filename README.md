@@ -1,23 +1,27 @@
 ## What is this?
-superluminal (working title) tries to be a simple terminal streaming application
-that starts a server which clients can connect to and creates a pseudoterminal(pty)
-which the host can read from and write to. The server then reads from the master side
-of this pty and forwards all content efficiently to all connected clients over custom
-protocol on tcp effectively "streaming" your terminal contents.
+superluminal (lowercase) is a lightweight terminal content streaming application that enables
+real-time sharing of a pseudoterminal (PTY) session with multiple clients. The server
+manages the PTY, reading from its master side and efficiently forwarding all on-screen
+content to connected clients over a custom TCP-based protocol using Protocol Buffers,
+effectively streaming the terminal output with minimal overhead
+
+superluminal includes a simple, minimal terminal user interface built with Bubble Tea,
+allowing hosts to manage sessions seamlessly. Hosts can approve connections, remove users,
+terminate sessions, and pause streaming at their discretion—all without compromising
+session integrity.
 
 ## Why is this?
-This is a challenge and a learning experience for myself on how to interact with the
-unusual interfaces exposed to us by the Linux operating system. I chose Go specifically
-for concurrency and simplicity to grok so that I don't end up losing a fight against
-the language syntax while figuring out network programming the first time.  
+superluminal is both a challenge and a learning experience for me—an opportunity to
+explore the unconventional interfaces provided by the Linux operating system. I chose
+Go for its simplicity and built-in concurrency, ensuring that I spend more time
+understanding network programming rather than wrestling with syntax.
 
-The use cases for this as I've realised could be
-* a teaching aid for new programmers in terminal
-* peer programming
-  
-Currently it's not ready yet but I'll be updating this README from time to time as
-this project progresses.
+As I’ve worked on this, I’ve realized some potential use cases:
+* a teaching aid for new programmers working in the terminal in situations on low-end
+and bandwidth scenarios
+* a tool for pair programming and remote collaboration
 
+The project is still a work in progress, and I’ll be updating this README as it evolves.
 - [x] Client Authentication
 - [x] Pty Pipeline to Stream Applications to Clients
 - [ ] Bubble Tea frontend

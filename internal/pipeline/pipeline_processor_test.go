@@ -90,6 +90,20 @@ daedalus
 exit
 `),
 		},
+
+		{
+			name: "simple colour output test",
+			args: args{
+				data: []byte(`
+]0;daedalus@theforge:~/projects/golang/personal/superluminal[?2004h[daedalus@theforge superluminal]$ ls --color=auto
+[?2004lREADME.md  btop.output  go.mod  go.sum  hello  hello_log  [0m[01;34minternal[0m  log.output  log.output.bak  main.go  out.gif  [01;34mprotos[0m  [01;32mprotos.sh[0m  [01;34mscripts[0m  [01;32msuperluminal[0m  tape.vhs  [01;34mtmp[0m  tmux.output
+]0;daedalus@theforge:~/projects/golang/personal/superluminal[?2004h[daedalus@theforge superluminal]$ exit
+[?2004lexit
+`),
+			},
+			want: []byte(`
+`),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

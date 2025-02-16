@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -40,4 +41,29 @@ func PrependLength(payload []byte) []byte {
 	binary.BigEndian.PutUint32(header, uint32(pLen))
 	message := append(header, payload...)
 	return message
+}
+
+func RLEncode(data []byte) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+
+	var encoded []byte
+	currentByte := data[0]
+	count := 1
+
+	for _, b := range data[1:] {
+		if b == currentByte {
+			count += 1
+		} else {
+			encoded = append(encoded, currentByte)
+			encoded = append(encoded, []byte(strconv.Itoa(count))...)
+			currentByte = b
+			count = 1
+		}
+	}
+	encoded = append(encoded, currentByte)
+	encoded = append(encoded, []byte(strconv.Itoa(count))...)
+
+	return encoded
 }

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -56,14 +57,54 @@ func RLEncode(data []byte) []byte {
 		if b == currentByte {
 			count += 1
 		} else {
+			if count == 1 {
+				encoded = append(encoded, currentByte)
+				currentByte = b
+				count = 1
+				continue
+			}
 			encoded = append(encoded, currentByte)
 			encoded = append(encoded, []byte(strconv.Itoa(count))...)
 			currentByte = b
 			count = 1
 		}
 	}
-	encoded = append(encoded, currentByte)
-	encoded = append(encoded, []byte(strconv.Itoa(count))...)
+	if count == 1 {
+		encoded = append(encoded, currentByte)
+	} else {
+		encoded = append(encoded, currentByte)
+		encoded = append(encoded, []byte(strconv.Itoa(count))...)
+	}
 
 	return encoded
+}
+
+func RLDecode(data []byte) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+
+	var decoded []byte
+	i := 0
+
+	for i < len(data) {
+		curByte := data[i] // current character
+		i++
+
+		// accumulate run length (if the next characters are digits)
+		runLength := 0
+		for i < len(data) && data[i] >= '0' && data[i] <= '9' {
+			// convert ascii digit to integer
+			runLength = runLength*10 + int(data[i]-'0')
+			i++
+		}
+
+		if runLength == 0 {
+			runLength = 1
+		}
+
+		decoded = append(decoded, bytes.Repeat([]byte{curByte}, runLength)...)
+	}
+
+	return decoded
 }

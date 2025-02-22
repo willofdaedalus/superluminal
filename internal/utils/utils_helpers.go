@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"unicode"
 )
 
 // logBytes logs the length of received bytes with a timestamp to a file.
@@ -93,7 +94,7 @@ func RLDecode(data []byte) []byte {
 
 		// accumulate run length (if the next characters are digits)
 		runLength := 0
-		for i < len(data) && data[i] >= '0' && data[i] <= '9' {
+		for i < len(data) && unicode.IsNumber(rune(data[i])) {
 			// convert ascii digit to integer
 			runLength = runLength*10 + int(data[i]-'0')
 			i++

@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"willofdaedalus/superluminal/internal/parser"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
 	"willofdaedalus/superluminal/internal/utils"
@@ -51,11 +52,13 @@ func (p *Pipeline) Start(done chan<- struct{}) {
 				return
 			default:
 				// read from pty
-				buf := p.ReadFrom()
-				if buf == nil {
+				fromPty := p.ReadFrom()
+				if fromPty == nil {
 					done <- struct{}{}
 					return
 				}
+
+				buf := parser.EncodeTokens(fromPty)
 
 				// this is for the client facing side so that they "see" what's happening
 				p.writeDataToScreen(buf)
@@ -96,7 +99,7 @@ func (p *Pipeline) Start(done chan<- struct{}) {
 }
 
 func (p *Pipeline) writeDataToScreen(data []byte) {
-	fmt.Printf("%s", string(data))
+	fmt.Printf("len(%d)\n%s", len(data), string(data))
 	p.logFile.Write(data)
 }
 

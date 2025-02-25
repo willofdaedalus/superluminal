@@ -5,20 +5,36 @@ import (
 	"strconv"
 )
 
-func parseTokens(tks []token) []byte {
-	cleanOutput := make([]byte, 0)
+func EncodeTokens(data []byte) []byte {
+	tokens := Scanner(data)
+	if len(tokens) < 0 {
+		return []byte{0}
+	}
+
+	return encode(tokens)
+}
+
+func encode(tks []token) []byte {
+	encoded := make([]byte, 0)
 
 	for _, tk := range tks {
 		switch tk.tokenType {
 		case ansiColour:
 			final := parseAnsiColours(tk.content)
-			cleanOutput = append(cleanOutput, final...)
+			encoded = append(encoded, final...)
 		case newline:
-			cleanOutput = append(cleanOutput, tk.content...)
+			encoded = append(encoded, '\n')
+		case normalText:
+			// if it can't be rlencoded then it's most likely not needed
+			// if rlencoded := utils.RLEncode(tk.content); rlencoded != nil {
+			// 	encoded = append(encoded, rlencoded...)
+			// 	continue
+			// }
+			encoded = append(encoded, tk.content...)
 		}
 	}
 
-	return cleanOutput
+	return encoded
 }
 
 func parseAnsiColours(content []byte) []byte {

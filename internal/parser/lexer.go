@@ -1,6 +1,9 @@
 package parser
 
-import "bytes"
+import (
+	"bytes"
+	"log"
+)
 
 type tokenType int
 
@@ -16,6 +19,7 @@ const (
 	BEL byte = '\007' // ^G
 	ESC byte = '\033' // ^[
 	CR  byte = '\015' // ^M
+	LF  byte = '\012' //
 )
 
 type token struct {
@@ -33,7 +37,8 @@ var acceptedSequences = map[byte]tokenType{
 func skipTo(data []byte, ends map[byte]struct{}) int {
 	for i, b := range data {
 		if _, exists := ends[b]; exists {
-			return i + 1
+			log.Print("skipped to", string(b))
+			return i
 		}
 	}
 
@@ -41,27 +46,26 @@ func skipTo(data []byte, ends map[byte]struct{}) int {
 	return len(data)
 }
 
-func scanner(data []byte) []token {
+func Scanner(data []byte) []token {
 	var tokens []token
 
-	i := 0
-	for i < len(data) {
+	for i := 0; i < len(data); i++ {
 		switch data[i] {
-		case CR:
+		case CR, LF:
 			tokens = append(tokens, token{
 				tokenType: newline,
 				content:   []byte{'\n'},
 			})
-
 		case ESC:
 			if i+1 < len(data) {
 				next := data[i+1]
 				switch next {
 				case ']': // OSC sequence
 					i += skipTo(data, map[byte]struct{}{BEL: {}})
+					log.Println("after skip", string(data[i]))
 
 				case '[': // CSI sequence
-					acc, offset := accumulator(data[i:], map[byte]struct{}{
+					acc, offset := accumulator(data[i+1:], map[byte]struct{}{
 						'm': {}, 'h': {}, 'l': {},
 						'r': {}, 'J': {}, 'K': {},
 					})
@@ -70,18 +74,19 @@ func scanner(data []byte) []token {
 						lastByte := acc[len(acc)-1]
 						if tk, ok := acceptedSequences[lastByte]; ok {
 							tokens = append(tokens, token{tokenType: tk, content: acc})
-							i += offset
 						}
 					}
+					i += offset
 				case '(':
 					i += skipTo(data, map[byte]struct{}{ESC: {}})
 				}
 			}
 		default:
-			accumulated, offset := accumulator(data[i:], map[byte]struct{}{ESC: {}})
-			tokens = append(tokens, token{tokenType: normalText, content: accumulated})
-			i += offset
+			acc, offset := accumulator(data[i:], map[byte]struct{}{ESC: {}})
+			tokens = append(tokens, token{tokenType: normalText, content: acc})
+			i += offset - 1
 		}
+		// i++
 	}
 	return tokens
 }
@@ -89,8 +94,14 @@ func scanner(data []byte) []token {
 func accumulator(data []byte, stopChars map[byte]struct{}) ([]byte, int) {
 	var buf bytes.Buffer
 	for i, b := range data {
-		if _, exists := stopChars[b]; exists {
-			return buf.Bytes(), i + 1
+		if _, ok := stopChars[b]; ok {
+			// if you continue to give, temporary solutions
+			// to the poorest of the poor
+			if b != ESC {
+				buf.WriteByte(b)
+				i += 1
+			}
+			return buf.Bytes(), i
 		}
 		buf.WriteByte(b)
 	}

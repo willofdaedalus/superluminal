@@ -2,7 +2,6 @@ package parser
 
 import (
 	"bytes"
-	"log"
 )
 
 type tokenType int
@@ -37,7 +36,6 @@ var acceptedSequences = map[byte]tokenType{
 func skipTo(data []byte, ends map[byte]struct{}) int {
 	for i, b := range data {
 		if _, exists := ends[b]; exists {
-			log.Print("skipped to", string(b))
 			return i
 		}
 	}
@@ -46,7 +44,7 @@ func skipTo(data []byte, ends map[byte]struct{}) int {
 	return len(data)
 }
 
-func Scanner(data []byte) []token {
+func scanner(data []byte) []token {
 	var tokens []token
 
 	for i := 0; i < len(data); i++ {
@@ -62,7 +60,6 @@ func Scanner(data []byte) []token {
 				switch next {
 				case ']': // OSC sequence
 					i += skipTo(data, map[byte]struct{}{BEL: {}})
-					log.Println("after skip", string(data[i]))
 
 				case '[': // CSI sequence
 					acc, offset := accumulator(data[i+1:], map[byte]struct{}{

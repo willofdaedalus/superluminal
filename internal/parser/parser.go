@@ -3,10 +3,11 @@ package parser
 import (
 	"bytes"
 	"strconv"
+	"willofdaedalus/superluminal/internal/utils"
 )
 
-func EncodeTokens(data []byte) []byte {
-	tokens := Scanner(data)
+func EncodeData(data []byte) []byte {
+	tokens := scanner(data)
 	if len(tokens) < 0 {
 		return []byte{0}
 	}
@@ -26,10 +27,10 @@ func encode(tks []token) []byte {
 			encoded = append(encoded, '\n')
 		case normalText:
 			// if it can't be rlencoded then it's most likely not needed
-			// if rlencoded := utils.RLEncode(tk.content); rlencoded != nil {
-			// 	encoded = append(encoded, rlencoded...)
-			// 	continue
-			// }
+			if rlencoded := utils.RLEncode(tk.content); rlencoded != nil {
+				encoded = append(encoded, rlencoded...)
+				continue
+			}
 			encoded = append(encoded, tk.content...)
 		}
 	}

@@ -125,44 +125,58 @@ func ReadFull(ctx context.Context, conn net.Conn, tracker *SyncTracker) ([]byte,
 			}
 		}
 
-		// read initial header
+		// Read the header (4 bytes)
 		headerBuffer := make([]byte, 4)
-		n, err := io.ReadFull(conn, headerBuffer)
-		if err != nil {
-			log.Printf("Failed to read header: error=%v, bytes_read=%d", err, n)
-			readErr = io.ErrUnexpectedEOF
-			return
+		bytesRead := 0
+		for bytesRead < 4 {
+			n, err := conn.Read(headerBuffer[bytesRead:])
+			if err != nil {
+				// log.Printf("[ERROR] Failed to read header: %v, bytes_read=%d", err, bytesRead)
+				readErr = io.ErrUnexpectedEOF
+				return
+			}
+			bytesRead += n
+			// log.Printf("[DEBUG] Header progress: %d/4 bytes read", bytesRead)
 		}
 
+		// Parse the header
 		payloadLen := binary.BigEndian.Uint32(headerBuffer)
-		// sanity check on payload length
+		// log.Printf("[DEBUG] Parsed payload length: %d", payloadLen)
+
+		// Sanity check on payload length
 		if payloadLen > MaxPayloadSize {
 			readErr = fmt.Errorf("payload length exceeds maximum allowed size: %d", payloadLen)
 			return
 		}
 
-		// allocate space for the full payload
+		// Allocate space for the full payload
 		actualPayload := make([]byte, payloadLen)
-		// use io.readfull to read the entire payload
-		if _, err := io.ReadFull(conn, actualPayload); err != nil {
-			readErr = io.ErrUnexpectedEOF
-			return
+		bytesRead = 0
+		for bytesRead < int(payloadLen) {
+			n, err := conn.Read(actualPayload[bytesRead:])
+			if err != nil {
+				// log.Printf("[ERROR] Failed to read payload: %v, bytes_read=%d/%d", err, bytesRead, payloadLen)
+				readErr = io.ErrUnexpectedEOF
+				return
+			}
+			bytesRead += n
+			// log.Printf("[DEBUG] Payload progress: %d/%d bytes read", bytesRead, payloadLen)
 		}
 
-		// reset the read deadline
+		// Reset the read deadline
 		conn.SetReadDeadline(time.Time{})
 		result = actualPayload
 	}()
 
-	// wait for either the context to be done or the read to complete
+	// Wait for either the context to be done or the read to complete
 	select {
 	case <-ctx.Done():
 		conn.SetReadDeadline(time.Now())
 		<-done
 		return nil, ctx.Err()
 	case <-done:
-		// the goroutine has naturally exited so we can return whatever we
-		// got from the assignments and everything
+		// The goroutine has naturally exited
+		// log.Printf("[DEBUG] Bytes successfully received: %d", len(result))
 		return result, readErr
 	}
 }

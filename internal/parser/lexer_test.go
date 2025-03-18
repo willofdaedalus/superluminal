@@ -233,11 +233,11 @@ func TestScanner(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Scanner(tt.args.data); !reflect.DeepEqual(got, tt.want) {
-				// t.Errorf("Scanner() = %v, want %v", got, tt.want)
-				for _, tk := range got {
-					t.Errorf("%s", string(tk.content))
-				}
+			if got := scanner(tt.args.data); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Scanner() = %v, want %v", got, tt.want)
+				// for _, tk := range got {
+				// 	t.Errorf("%s", string(tk.content))
+				// }
 			}
 		})
 	}

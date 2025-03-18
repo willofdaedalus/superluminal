@@ -7,6 +7,12 @@ import (
 	"os/exec"
 )
 
+const (
+	receiveBufferInitSize = 10 << 20
+	// networkSendSize       = 1024
+	networkSendSize = 10 << 15
+)
+
 // gets the user's default shell; if not successful, falls back to bash
 func getUserShell() string {
 	sh := os.Getenv("SHELL")

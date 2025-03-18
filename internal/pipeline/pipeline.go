@@ -1,13 +1,14 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"sync"
-	"willofdaedalus/superluminal/internal/parser"
+	"time"
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
 	"willofdaedalus/superluminal/internal/utils"
@@ -43,6 +44,10 @@ func NewPipeline(maxConns uint8) (*Pipeline, error) {
 
 // starts broadcasting pty output to all connected consumers
 func (p *Pipeline) Start(done chan<- struct{}) {
+	// create and grow a buffer of 10MB
+	receiveBuffer := bytes.NewBuffer(nil)
+	receiveBuffer.Grow(receiveBufferInitSize)
+
 	go func() {
 		// clear the screen
 		// p.WriteTo([]byte("\x0C"))
@@ -52,22 +57,26 @@ func (p *Pipeline) Start(done chan<- struct{}) {
 				return
 			default:
 				// read from pty
-				fromPty := p.ReadFrom()
-				if fromPty == nil {
+				receiveBuffer.Write(p.ReadFrom())
+				// fmt.Println("got from pty", receiveBuffer.Len())
+				// read exactly `networkSendSize` bytes or whatever is available
+				buf := receiveBuffer.Next(min(networkSendSize, receiveBuffer.Len()))
+				// fmt.Println("got from buf", len(buf))
+
+				if len(buf) == 0 {
+					// either the pty got the "exit" command and quit which in that case returned
+					// nothing or the pty crashed (highly unlikely) but either case we
+					// signal the done chan and exit from the function effectively ending the
+					// session. session handler makes sure everyone is closed
 					done <- struct{}{}
 					return
 				}
 
-				buf := parser.EncodeTokens(fromPty)
+				// buf := parser.EncodeData(fromPty)
 
 				// this is for the client facing side so that they "see" what's happening
 				p.writeDataToScreen(buf)
 
-				// broadcast to all consumers
-				p.mu.Lock()
-
-				bufCopy := make([]byte, len(buf))
-				copy(bufCopy, buf)
 				termPayload := base.GenerateTermContent(uuid.NewString(), uint32(len(buf)), buf)
 				payload, err := base.EncodePayload(common.Header_HEADER_TERMINAL_DATA, &termPayload)
 				if err != nil {
@@ -77,19 +86,23 @@ func (p *Pipeline) Start(done chan<- struct{}) {
 					// not quite sure what do with the error yet
 				}
 
+				// broadcast to all consumers
+				p.mu.Lock()
 				for conn := range p.consumers {
 					// non-blocking write to prevent slow consumers from blocking
 					select {
 					case <-p.stopChan:
-						p.mu.Unlock()
+						// p.mu.Unlock()
 						return
 					default:
-						writeErr := utils.WriteFull(context.TODO(), conn, nil, payload)
+						writeCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+						writeErr := utils.WriteFull(writeCtx, conn, nil, payload)
 						if writeErr != nil {
 							fmt.Printf("Error writing to consumer: %v\n", writeErr)
 							// consider removing the failing consumer
 							delete(p.consumers, conn)
 						}
+						cancel()
 					}
 				}
 				p.mu.Unlock()
@@ -99,7 +112,7 @@ func (p *Pipeline) Start(done chan<- struct{}) {
 }
 
 func (p *Pipeline) writeDataToScreen(data []byte) {
-	fmt.Printf("len(%d)\n%s", len(data), string(data))
+	fmt.Printf("%v", string(data))
 	p.logFile.Write(data)
 }
 
@@ -148,7 +161,7 @@ func (p *Pipeline) WriteTo(stuff []byte) {
 
 // reads whatever is in the pty and returns it
 func (p *Pipeline) ReadFrom() []byte {
-	buf := make([]byte, 10240)
+	buf := make([]byte, networkSendSize)
 	n, err := p.pty.Read(buf)
 	if err != nil {
 		return nil

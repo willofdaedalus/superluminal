@@ -6,7 +6,7 @@ type attribute byte
 // handle all 100 attributes just the ones that are
 // common; this might change in the future
 const (
-	Bold attribute = iota
+	Bold attribute = iota + 1
 	Faint
 	Italic
 	Underline

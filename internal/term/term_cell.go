@@ -13,8 +13,11 @@ type Cell struct {
 	Width uint8
 }
 
-func CreateCell(char rune, fg, bg termColor, attrs attribute, width uint8) *Cell {
-	return &Cell{
+func CreateCell(char rune, fg, bg termColor, attrs attribute, width uint8) Cell {
+	if width < 1 || width > 2 {
+		width = 1
+	}
+	return Cell{
 		Character:  char,
 		FgCode:     fg,
 		BgCode:     bg,

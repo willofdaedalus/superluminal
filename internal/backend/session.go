@@ -12,6 +12,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
 	"willofdaedalus/superluminal/internal/payload/base"
 	"willofdaedalus/superluminal/internal/payload/common"
 	"willofdaedalus/superluminal/internal/payload/info"
@@ -185,7 +186,8 @@ func (s *Session) listen(ctx context.Context, doneChan chan<- struct{}, errChan 
 }
 
 func (s *Session) kickClient(
-	ctx context.Context, conn net.Conn, errType err1.ErrorMessage_ErrorCode, details []string) {
+	ctx context.Context, conn net.Conn, errType err1.ErrorMessage_ErrorCode, details []string,
+) {
 	kickCtx, cancel := context.WithTimeout(ctx, clientKickTimeout)
 	defer cancel()
 	// defer func() {
@@ -424,7 +426,6 @@ func (s *Session) processPayload(ctx context.Context, data []byte, errChan chan<
 		log.Println("got an info payload")
 		errChan <- s.handleClientInfoMsg(ctx, infoPayload)
 	}
-
 }
 
 func (s *Session) handleClientInfoMsg(ctx context.Context, infoPayload *base.Payload_Info) error {
@@ -442,6 +443,5 @@ func (s *Session) handleClientInfoMsg(ctx context.Context, infoPayload *base.Pay
 }
 
 func (*Session) handleHeartbeatResp() error {
-
 	return nil
 }

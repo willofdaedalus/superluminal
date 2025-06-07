@@ -11,7 +11,10 @@ terminate sessions, and pause streaming at their discretion—all without compro
 session integrity.
 
 ## Setup
-In order to get superluminal running you need the following;
+superluminal is not ready at all in this current stage, but if you want to test out the
+streaming (which works fine for most **text** based interfaces not **TUI**), you need to
+get superluminal running with the following;
+
 * [go](https://go.dev/dl/)
 * [git](https://git-scm.com/downloads)
 * an [ngrok](https://ngrok.com/downloads/) account if you plan on sharing across the internet.
@@ -25,6 +28,11 @@ git clone https://github.com/willofdaedalus/superluminal
 cd superluminal/
 go build
 ```
+
+By default the code is set to run in debug mode which means only a single word [diceware](https://en.wikipedia.org/wiki/Diceware)
+passphrase is generated. For production, it's recommended to be at least 5 or 6 words. You can 
+change that in session.go. This behaviour will change in the future when the
+software has advanced.
 
 ### Starting and sharing your session as a host
 To start a session after running the setup commands, do `./superluminal -s` to start a server.
@@ -53,4 +61,5 @@ and bandwidth scenarios
 The project is still a work in progress, and I’ll be updating this README as it evolves.
 - [x] Client Authentication
 - [x] Pty Pipeline to Stream Applications to Clients
+- [ ] One to One Terminal Streaming on Advanced TUI Applications
 - [ ] Bubble Tea frontend
